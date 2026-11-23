@@ -6,9 +6,10 @@ The purpose of experiments is to identify robust relationships across many stoch
 
 Run 100+ independent seeds with the default synthetic configuration. Record:
 - graduation probability and time-to-graduation distribution;
+- gross buys, gross sells, net quote flow, and remaining real quote reserve on the bonding curve;
 - final return and maximum drawdown distributions;
 - true volume, fees, LP fee accrual, and estimated adverse-execution exposure;
-- holder concentration and Dev unlocked / locked inventory;
+- top-1 / top-5 holder share, wallet HHI, and Dev unlocked / locked inventory;
 - participant-level realized and unrealized PnL;
 - true-versus-observed candle and volume differences.
 
