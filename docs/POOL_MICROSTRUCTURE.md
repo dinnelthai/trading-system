@@ -151,6 +151,22 @@ The engine reports fee-aware depth for:
 
 Buy depth is gross quote paid by the trader. Sell depth is net quote received by the seller. Both are calculated against actual pool reserves and the configured fee split.
 
+## 4. PumpSwap effective quote reserves and protocol-version caveat
+
+PumpSwap pricing does not always use the raw quote token-account balance. The pool account carries a signed virtual quote reserve:
+
+\[
+Q_{effective}=Q_{vault}+Q_{virtual}
+\]
+
+The virtual field is an i128 and may be negative. PumpSwap V2 can retain protocol and creator fees in the quote vault while subtracting them from virtual quote reserves so those fees do not count as pricing liquidity. Effective quote reserves remain nonnegative.
+
+R03's continuous pool model stores the net pricing reserve and tracks protocol fees separately. That is an approximation of effective reserves; it does not yet model the raw quote vault and signed virtual reserve as two independent state variables. R04 therefore stores and reconciles both components from chain data. Never compare a simulated effective quote reserve directly with the raw quote-vault balance.
+
+Fee schedules and instruction variants are slot-dependent. PumpSwap V1/V2 and Bonding Curve legacy/V2/V3 trades may coexist on the same pool or curve. Historical replay must use the fee and reserve semantics active for each transaction, rather than applying the latest global configuration to all historical trades.
+
+See the official [PumpSwap documentation](https://github.com/pump-fun/pump-public-docs/blob/main/docs/PUMP_SWAP_README.md), [PumpSwap V2](https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/PUMP_SWAP_TRADE_V2.md), and [negative virtual quote reserve specification](https://github.com/pump-fun/pump-public-docs/blob/main/docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md).
+
 ## 4. LP changes and pool invariants
 
 The pool tracks:
