@@ -26,6 +26,7 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 8. **LP economics:** vary pool fee, LP fee share, initial LP lock fraction, and LP risk aversion. Measure depth, fee accrual, and inventory drawdown.
 9. **Adverse execution:** vary abstract MEV-risk probability and maximum risk bps. Measure exposure by order size and depth; do not interpret this as a deployable attack model.
 10. **Data quality:** vary feed latency, dropped-event rate, and duplicate-delivery rate. Compare observed candles with the true execution tape.
+11. **Dev treasury exit:** compare no-sale, fixed vesting-sale, fixed tranche, risk-threshold, adaptive optimal-stopping and route-aware policies on matched seeds. Vary Dev LP ownership, unlocked overhang, independent executable depth, volatility, OTC capacity, future unlocks and treasury reserve requirements. Measure net realized proceeds, terminal liquidation value, beneficial exposure reduction, market impact, post-sale depth, treasury runway and tail outcomes.
 
 ## Stress scenarios
 
