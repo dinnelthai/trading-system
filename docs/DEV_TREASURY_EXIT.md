@@ -322,6 +322,312 @@ Signals that must not be mistaken for an attractive exit window:
 
 Therefore, the engine should rank windows by **net executable proceeds, risk reduction and continuation value**, not by ATH detection or a fixed market-cap target. No model can guarantee that it sells at the ex-post peak.
 
+### 7.4 Three different break-even tests
+
+Do not collapse capital recovery, economic profitability and operating solvency into one “break-even” flag.
+
+**A. Cash-capital recovery**
+
+Let \(C_0^{cash}\) be all verified external quote capital contributed to the project: curve purchases, quote-asset LP contributions, launch/migration and paid operating costs. Do not treat a free genesis allocation as a cash contribution; keep its non-cash opportunity basis separately.
+
+Define cumulative net capital returned:
+
+\[
+R_t^{capital}=
+\sum_j R_{AMM,j}^{owner}
++\sum_j Proceeds_{OTC,j}^{settled}
++\sum_j Q_{LP,j}^{released}
++\sum_j F_{creator,j}^{external,claimed}
+-\sum_j C_{return,j}
+\]
+
+where:
+
+- \(R_{AMM}^{owner}\) is the consolidated beneficial-owner quote inflow from a sale, not gross wallet proceeds;
+- \(Proceeds_{OTC}^{settled}\) is net consideration from a verified independent buyer after settlement;
+- \(Q_{LP}^{released}\) is quote principal actually released from Dev's own LP claim; it is returned capital, not profit;
+- \(F_{creator}^{external,claimed}\) is Creator Fee received from eligible independent trading activity and actually settled;
+- \(C_{return}\) includes execution/settlement costs not already included in \(C_0^{cash}\).
+
+A sale's own Creator Fee is netted into \(R_{AMM}^{owner}\) if Dev is entitled to it; do not add it a second time as external fee revenue. LP fees already embedded in the LP reserve claim are not a second cash receipt.
+
+The cash-capital recovery ratio is:
+
+\[
+CRR_t=\frac{R_t^{capital}}{C_0^{cash}}
+\]
+
+when \(C_0^{cash}>0\). Nominal cash-capital break-even is reached when \(CRR_t\geq1\). This says capital has been returned through realized proceeds and released quote principal; it does **not** prove that the project is profitable or solvent.
+
+**B. Economic break-even**
+
+Define route-aware net liquidation value:
+
+\[
+NLV_t=C_t+\mathcal L_t(H_t^{free},H_t^{LP},H_t^{locked})
++R_t^{eligible}-L_t^{outstanding}
+\]
+
+where \(\mathcal L_t\) is executable liquidation value after fees, impact, route capacity and valid unlock restrictions; \(R_t^{eligible}\) is a separately valued eligible receivable not already included in cash or LP reserves; and \(L_t^{outstanding}\) is the liability/obligation ledger.
+
+Then:
+
+\[
+EconomicSurplus_t=NLV_t+D_t^{owner}-C_0^{cash}-B_0^{noncash}
+\]
+
+where \(D_t^{owner}\) is cash already distributed to capital providers and \(B_0^{noncash}\) is an explicitly selected opportunity basis for non-cash genesis allocations. Purchased inventory basis must not be subtracted again if its purchase cash outflow is already included in \(C_0^{cash}\).
+
+Economic break-even is \(EconomicSurplus_t\geq0\). Report the result both with and without optional non-cash opportunity basis so that a free allocation cannot silently make the project appear more profitable.
+
+**C. Operating solvency**
+
+\[
+C_t^{available}\geq O_t^{committed}+C_t^{minimum\ reserve}
+\]
+
+A project can have recovered its initial capital historically and still lack enough available cash for future obligations. Conversely, it can be solvent while not yet having recovered its original capital. These are separate controls.
+
+### 7.5 Pump fee schedule is a versioned input, not one fixed fee
+
+The official [Pump.fun fee schedule](https://pump.fun/docs/fees) states that canonical PumpSwap fees depend on the token's quote-denominated market cap, calculated as current token price multiplied by 1 billion tokens. The published schedule was last updated 16 November 2026. Selected SOL-pair tiers are:
+
+| Venue / market-cap tier | Creator | Protocol | LP | Total |
+|---|---:|---:|---:|---:|
+| Bonding curve | 0.300% | 0.950% | 0% | 1.250% |
+| PumpSwap canonical, 0–420 SOL | 0.300% | 0.930% | 0.020% | 1.250% |
+| PumpSwap canonical, 420–1,470 SOL | 0.950% | 0.050% | 0.200% | 1.200% |
+| PumpSwap canonical, 98,240 SOL and above | 0.050% | 0.050% | 0.200% | 0.300% |
+| PumpSwap non-canonical | 0% | 0.050% | 0.250% | 0.300% |
+| PumpSwap canonical, custom pair | 0.050% | 0.050% | 0.200% | 0.300% |
+
+USDC canonical pools use their own USDC-denominated thresholds; do not reuse the SOL thresholds. The complete tier table must be loaded from a versioned schedule rather than copied as one constant.
+
+Important consequences:
+
+1. The Creator Fee is not constant. In the published SOL canonical schedule it rises from 0.300% in the first tier to 0.950% in the 420–1,470 SOL tier, then declines as market cap rises.
+2. The LP and Protocol components also change at the first tier boundary. Their actual reserve treatment must be taken from the active instruction/version.
+3. Creator Fee belongs to the creator only when the creator is the designated beneficiary. If the coin uses Holder Rewards or a charity destination, do not book that amount as Dev Creator Fee income. Holder Rewards, if Dev separately qualifies as a holder, require their own eligibility and distribution-cost ledger.
+4. Every fee is in the relevant quote asset. For multi-pool routes, Pump's published rules charge the Protocol Fee on the first pool and the Creator/Holder Rewards and LP Fee on the final pool; some interfaces may apply fee logic on every hop.
+5. Pump's Platform Fee is separate from the pool fee schedule: the published rate is 0.45% without a referral code or 0.40% with one for Pump web/mobile trades, and it does not apply through Terminal or third-party interfaces. Third-party interface, router, priority and network costs remain separate route inputs.
+
+The fee adapter must resolve, for each confirmed transaction:
+
+- venue and instruction/program version;
+- canonical versus non-canonical pool;
+- pair asset and market-cap tier at the transaction's applicable state;
+- Creator, Protocol and LP fee rates **and actual amounts**;
+- creator-beneficiary mode: creator, Holder Rewards, charity or unknown;
+- route/interface fees and each pool hop;
+- quote asset in which each fee is collected;
+- raw quote vault, signed virtual quote reserve and effective pricing reserve;
+- slot, transaction signature and fee-schedule version.
+
+The actual confirmed transaction and pool-state delta are authoritative. A theoretical rate table is a quote/forecast input, not a replacement for on-chain reconciliation.
+
+### 7.6 Fee-aware owner-level sale accounting
+
+For one Dev sale, let:
+
+- \(G\): gross quote output from the AMM curve before fees;
+- \(F_C,F_P,F_L\): actual Creator, Protocol and LP fee amounts;
+- \(F_R\): separate interface/router/platform charges;
+- \(N=G-F_C-F_P-F_L-F_R\): quote received by the selling wallet in this simplified output-fee case;
+- \(D_{eff}\): reduction in the pool's effective quote reserve;
+- \(\alpha\): Dev's beneficial LP share immediately before the swap;
+- \(\eta\): fraction of Creator Fee beneficially owned by Dev;
+- \(q_w\): Token debited from Dev's wallet;
+- \(q_p\): Token credited to the pool;
+- \(P_{ref}\): independent executable reference price, not the post-trade local marginal price.
+
+The consolidated owner-level quote change is:
+
+\[
+\Delta Q_{owner}=N-\alpha D_{eff}+\eta F_C-C_{other}
+\]
+
+The beneficial Token change is:
+
+\[
+\Delta H_{owner}=-q_w+\alpha q_p
+\]
+
+For a standard token transfer with no transfer fee, \(q_w=q_p=q\), so \(\Delta H_{owner}=-(1-\alpha)q\).
+
+The immediate economic value change against the independent reference is:
+
+\[
+\boxed{\Delta NLV_{ref}=\Delta Q_{owner}+P_{ref}\Delta H_{owner}}
+\]
+
+In the simplified CPMM where only the LP fee is retained in the effective pricing reserve, \(D_{eff}=G-F_L\). PumpSwap V2 may use raw-vault and signed virtual-reserve adjustments, so production code must use the confirmed effective reserve delta rather than blindly applying this simplified identity.
+
+If the fee basis is \(G\), \(F_i=r_iG\), and there are no separate route costs:
+
+\[
+\Delta Q_{owner}
+=G[(1-r_C-r_P-r_L)-\alpha(1-r_L)+\eta r_C]
+\]
+
+This prevents three accounting errors:
+
+- counting the full wallet output while ignoring Dev's own LP-funded share of the quote reserve;
+- counting the Creator Fee as income when it belongs to holders or charity;
+- adding LP fees as separate income when they are already reflected in the LP claim.
+
+A Creator Fee generated by Dev's own sale is an internal transfer within the consolidated beneficial owner if Dev receives it; it offsets that fee cost but is not independent external trading revenue.
+
+### 7.7 Worked example: a small sale under a real fee tier
+
+Use an analytical PumpSwap canonical SOL-pair state:
+
+- total supply: 1 billion tokens;
+- \(X=100,000,000\) Token and \(Y=100\) SOL;
+- \(P_{ref}=Y/X=0.000001\) SOL per Token, giving a 1,000 SOL market cap;
+- \(q=2,500,000\) Token, or 2.5% of the starting Token reserve;
+- Dev owns \(\alpha=40\%\) of the LP;
+- fee tier: 420–1,470 SOL, with Creator 0.950%, Protocol 0.050%, LP 0.200%;
+- assume \(F_i=r_iG\), Creator Fee is actually payable to Dev (\(\eta=1\)), and exclude app/router/network costs for this isolated example.
+
+The curve output is:
+
+\[
+G=\frac{100\times2,500,000}{100,000,000+2,500,000}
+=2.439024\ SOL
+\]
+
+Fee allocation:
+
+| Component | SOL |
+|---|---:|
+| Creator Fee | 0.023171 |
+| Protocol Fee | 0.001220 |
+| LP Fee retained | 0.004878 |
+| Seller wallet output | 2.409756 |
+
+The effective quote reserve debit in this simplified model is:
+
+\[
+D_{eff}=G-F_L=2.434146\ SOL
+\]
+
+Dev's consolidated quote increase is:
+
+\[
+\Delta Q_{owner}
+=2.409756-0.40(2.434146)+0.023171
+=1.459268\ SOL
+\]
+
+Its beneficial Token exposure falls by:
+
+\[
+(1-0.40)\times2,500,000=1,500,000\ Token
+\]
+
+At the independent reference price, the value of that reduced exposure is 1.5 SOL. Thus:
+
+\[
+\Delta NLV_{ref}=1.459268-1.500000
+=-0.040732\ SOL
+\]
+
+The post-trade marginal-price decline is approximately 4.814%, and average execution shortfall versus the pre-trade reference is approximately 2.439%.
+
+This example demonstrates that the sale converts some Token exposure into quote cash at a small execution cost; it does not create free wealth. If Dev is not entitled to the Creator Fee, the same example's net value change is approximately -0.063902 SOL. All figures are model outputs under the stated fee-basis assumption, not a live quote or a recommendation to trade.
+
+### 7.8 Solve the cash break-even quantity without violating depth
+
+For a single constant-fee-tier CPMM sale, assume:
+
+- no transfer fee, so \(q_w=q_p=q\);
+- \(D_{eff}=G(1-r_L)\);
+- all fee rates use the same gross basis \(G\);
+- \(\alpha\) and fee tier remain constant during the transaction;
+- route charges are split into a proportional rate \(r_R\) and fixed cost \(C_f\).
+
+Define:
+
+\[
+k=(1-r_C-r_P-r_L-r_R)-\alpha(1-r_L)+\eta r_C
+\]
+
+Then the net owner-level quote recovery from the sale is:
+
+\[
+R_{AMM}^{owner}(q)=k\frac{Yq}{X+q}-C_f
+\]
+
+Let \(S\) be the remaining cash-capital recovery shortfall after all previously settled eligible proceeds and released LP quote principal. If \(k>0\), define:
+
+\[
+A=\frac{S+C_f}{k}
+\]
+
+The idealized quantity required to close that shortfall is:
+
+\[
+\boxed{q_{BE}=\frac{XA}{Y-A}}
+\]
+
+This solution exists only if \(0<A<Y\). It is not permission to trade that quantity.
+
+The maximum quantity under a marginal-price decline limit \(\delta\) is found from:
+
+\[
+(1-\delta)t^2+[2(1-\delta)-r_L]t-\delta=0
+\]
+
+where \(t=q/X\), and \(q_{impact}^{max}=Xt\). The actual permitted quantity is:
+
+\[
+q_{max}=\min(q_{impact}^{max},q_{route},q_{eligible},q_{mandate})
+\]
+
+If \(q_{BE}>q_{max}\), the cash shortfall cannot be closed by one permitted sale in the current state. Do not exceed the impact/depth limit. Re-evaluate after genuinely new market information and state changes, or assess a verified independent route and the treasury's funding/obligation plan.
+
+For fee-tier crossings, multiple routes, PumpSwap virtual-reserve semantics or changing LP ownership, solve the exact state transition numerically using the versioned fee adapter. Do not extrapolate the constant-tier closed form across a tier boundary.
+
+### 7.9 Partial liquidation as a marginal optimal-stopping problem
+
+Let \(M_{hold,t}\) be the risk-adjusted continuation value per unit of **net beneficial Token exposure**. It is derived from the distribution of future executable liquidation proceeds after discounting, tail-risk charge, future unlock/supply, venue failure and capital carrying costs. It is not the displayed spot price.
+
+Under the same simplified constant-tier assumptions, the marginal owner-level quote proceeds per unit of net beneficial Token exposure sold are:
+
+\[
+M_{sell}(q)=
+\frac{kYX}{(1-\alpha)(X+q)^2}
+\]
+
+An interior partial-sale solution satisfies:
+
+\[
+M_{sell}(q^*)=M_{hold,t}
+\]
+
+and therefore:
+
+\[
+\boxed{
+q^*=
+\sqrt{\frac{kYX}{(1-\alpha)M_{hold,t}}}-X
+}
+\]
+
+Clamp this analytical benchmark to \([0,q_{max}]\), and use it only when \(k>0\), \(\alpha<1\), and the assumptions remain valid. If the result is zero or negative, HOLD is preferred by this simplified marginal test. If it exceeds \(q_{max}\), the quality/risk limit binds; do not automatically execute the remainder later.
+
+Example using the same \(X,Y,\alpha,k\) above, with an illustrative risk-adjusted continuation value \(M_{hold}=0.95P_{ref}\):
+
+\[
+q^*\approx2.452\ million\ Token
+\]
+
+This is below the 5% impact cap of approximately 2.601 million Token. The model would then re-evaluate after the confirmed state transition. If \(M_{hold}=P_{ref}\), the unconstrained result is negative and the model prefers HOLD. If \(M_{hold}=0.90P_{ref}\), the unconstrained result exceeds the impact cap, so the cap—not the target price—binds.
+
+The \(M_{hold}\) values above are controlled assumptions for demonstrating the equation, not forecasts. In production, use scenario distributions, calibrated independent flow and held-out launch data.
+
+A tranche is a new decision after a confirmed state update, not a fixed instruction to keep selling. In a fee-free CPMM with no intervening state changes, splitting the same aggregate Token input does not create additional aggregate depth or remove the curve's total price impact. Real Pump fee tiers, retained fees, rounding, per-transaction costs and intervening independent flow require exact sequential replay.
+
 ## 8. Sale sizing and execution schedule
 
 The amount sold in one decision cycle is constrained by:
@@ -497,26 +803,43 @@ The orchestrator must enforce post-action depth floors, maximum marginal impact,
 For a sell of \(q\) Token, define:
 
 - \(G\): gross quote output along the AMM curve before fees;
-- \(f_{total}\): total trader-side fee rate deducted from gross output;
-- \(f_{LP}\): LP fee amount retained in effective pool reserves, expressed as a fraction of \(G\);
-- \(D_{pool}=G(1-f_{LP})\): quote reserve debit after the LP-retained fee.
+- \(F_C,F_P,F_L\): actual Creator, Protocol and LP fee amounts;
+- \(F_R\): separate interface/router/platform charges;
+- \(N=G-F_C-F_P-F_L-F_R\): quote received by the selling wallet in this simplified output-fee case;
+- \(D_{eff}\): reduction in the pool's effective quote reserve;
+- \(\alpha\): Dev's beneficial LP share immediately before the swap;
+- \(\eta\): fraction of Creator Fee beneficially owned by Dev;
+- \(q_w\): Token debited from Dev's wallet;
+- \(q_p\): Token credited to the pool.
 
-The trader receives:
+The consolidated owner-level quote change is:
 
 \[
-N=G(1-f_{total})
+\Delta Q_{owner}=N-\alpha D_{eff}+\eta F_C-C_{other}
 \]
 
-If Dev owns fraction \(\alpha\) of the pool LP at the time of sale, its owner-level quote exposure change is:
+The beneficial Token change is:
 
 \[
-\Delta C_{Dev}=N-\alpha D_{pool}
-=G[(1-f_{total})-\alpha(1-f_{LP})]
+\Delta H_{owner}=-q_w+\alpha q_p
 \]
 
-This formula separates the seller's actual proceeds from the loss in Dev's own LP claim. It must use the fee split and effective-reserve semantics for the exact protocol version and transaction route. Creator/protocol fees paid out of the pool are not LP-retained reserve value.
+For a standard token transfer with no transfer fee, \(q_w=q_p=q\), so \(\Delta H_{owner}=-(1-\alpha)q\). Against an independent executable reference price \(P_{ref}\), the immediate economic value change is:
 
-For the current simplified simulator, \(f_{total}=f\) and \(f_{LP}=f\ell\), where \(\ell\) is the configured LP share. The full Pump.fun canonical fee model additionally needs separate creator, protocol and LP fee components and the active market-cap tier. Any creator fee entitlement must be tracked as a separate quote-asset receivable/cash flow, not added to pool reserves. LP fees already retained in reserves must not also be added as a second income item.
+\[
+\Delta NLV_{ref}=\Delta Q_{owner}+P_{ref}\Delta H_{owner}
+\]
+
+In the simplified CPMM where only the LP fee is retained in the effective pricing reserve, \(D_{eff}=G-F_L\). PumpSwap V2 may use raw-vault and signed virtual-reserve adjustments, so production code must use the confirmed effective reserve delta rather than blindly applying this simplified identity.
+
+If the fee basis is \(G\), \(F_i=r_iG\), and there are no separate route costs:
+
+\[
+\Delta Q_{owner}
+=G[(1-r_C-r_P-r_L)-\alpha(1-r_L)+\eta r_C]
+\]
+
+A Creator Fee generated by Dev's own sale is an internal transfer within the consolidated beneficial owner if Dev receives it; it offsets that fee cost but is not independent external trading revenue. Do not add LP fees separately when they are already reflected in the LP reserve claim.
 
 ### 10.4 Numerical comparison
 
@@ -628,23 +951,30 @@ The Dev Treasury & Exit Engine is not accepted until:
 13. Adaptive exit is compared against fixed-schedule and no-sale baselines on matched seeds.
 14. Terminal valuation uses executable liquidation value, not marginal spot price.
 15. Every sale proposal and confirmed result is auditable and reproducible.
+16. Cash-capital recovery is calculated from net beneficial-owner proceeds and released LP quote principal, not gross wallet swap output alone.
+17. Cash-capital recovery, economic break-even and operating solvency are reported as three separate tests.
+18. Creator Fee is attributed only to its actual beneficiary; Holder Rewards and charity flows are not Dev Creator Fee income.
+19. Fee schedules are selected by venue, pair, tier, instruction/version, route and slot; confirmed fee amounts reconcile to chain data.
+20. A calculated break-even quantity or optimal tranche never overrides impact, depth, reserve, vesting, ownership or market-integrity constraints.
 
 ## 15. Open research and implementation order
 
-1. Extend the canonical state contract with beneficial-owner treasury inventory, cost basis, vesting, creator-fee receivables and route capacity.
-2. Validate Pump curve and PumpSwap treasury sell transitions against protocol-specific fee and reserve mechanics, including separate creator, protocol and LP fee flows.
-3. Validate sell-side fee retention in the simulator and pool-depth analytics; explicit reserve-delta regression tests now cover the simplified two-component model.
-4. Add and validate partial LP withdrawal semantics and pro-rata LP cost-basis release.
-5. Compare sell-before-remove and remove-before-sell under market-quality constraints, not private proceeds alone.
-6. Implement the LP-ownership-aware net-exit accounting identity and test it against simulated swaps.
-7. Add a route-aware sale capacity model for AMM and independent OTC execution.
-8. Define the treasury reserve/obligation mandate and the risk-adjusted continuation-value model.
-9. Implement the Dev Treasury & Exit Engine as a proposal generator.
-10. Integrate it with Orchestrator hard gates and joint LP/exit action bundles.
-11. Run matched-seed policy experiments, historical replay and held-out validation.
-12. Keep adaptive exit in research/paper mode until all accounting, authorization, integrity and execution gates pass.
-
-**Current implementation note:** The simulator now supports fractional LP withdrawal (REMOVE_LP amount is the fraction of the account's LP shares; zero preserves full withdrawal), pro-rata LP cost-basis release, and sell-side LP-fee retention in the simplified CPMM. The model remains a two-component LP/protocol fee abstraction and does not yet implement Pump's dynamic creator/protocol/LP fee tiers. The adaptive optimal-stopping engine, beneficial-owner exit ledger and route-aware treasury optimizer specified here are not yet implemented.
+1. Extend the canonical state contract with beneficial-owner treasury inventory, cost basis, vesting, creator-fee receivables, cash-capital contributions/returns and route capacity.
+2. Build a versioned Pump fee adapter for Bonding Curve, canonical/non-canonical PumpSwap, SOL/USDC/custom pairs, multi-hop routes and interface fees; preserve slot-specific effective-reserve semantics.
+3. Implement separate cash-capital recovery, economic NLV and operating-solvency ledgers; reconcile LP principal, creator-fee entitlement and LP fees without double counting.
+4. Implement the constant-tier break-even solver and fee-aware impact cap as analytical baselines; use a numerical solver for tier/route/reserve transitions.
+5. Calibrate (M_{hold}) from independent executable flow, historical cohorts and tail-risk scenarios; validate partial-liquidation policy on held-out launches.
+6. Validate Pump curve and PumpSwap treasury sell transitions against protocol-specific fee and reserve mechanics, including separate creator, protocol and LP fee flows.
+7. Validate sell-side fee retention in the simulator and pool-depth analytics; explicit reserve-delta regression tests now cover the simplified two-component model.
+8. Add and validate partial LP withdrawal semantics and pro-rata LP cost-basis release.
+9. Compare sell-before-remove and remove-before-sell under market-quality constraints, not private proceeds alone.
+10. Implement the LP-ownership-aware net-exit accounting identity and test it against simulated swaps.
+11. Add a route-aware sale capacity model for AMM and independent OTC execution.
+12. Define the treasury reserve/obligation mandate and the risk-adjusted continuation-value model.
+13. Implement the Dev Treasury & Exit Engine as a proposal generator.
+14. Integrate it with Orchestrator hard gates and joint LP/exit action bundles.
+15. Run matched-seed policy experiments, historical replay and held-out validation.
+16. Keep adaptive exit in research/paper mode until all accounting, authorization, integrity and execution gates pass.
 
 No live execution is authorized by this document.
 
