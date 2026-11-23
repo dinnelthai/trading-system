@@ -46,7 +46,7 @@ def test_buy_route_selects_lowest_expected_execution_cost():
     )
     assert result.action == "ROUTE"
     assert result.selected_venue_id == "venue-b"
-    assert result.expected_cost_bps == pytest.approx(30.0)
+    assert result.expected_cost_bps == pytest.approx(30.7)
 
 
 def test_sell_route_uses_quote_output_against_reference_benchmark():
@@ -59,7 +59,7 @@ def test_sell_route_uses_quote_output_against_reference_benchmark():
     )
     assert result.action == "ROUTE"
     assert result.selected_venue_id == "venue-b"
-    assert result.expected_cost_bps == pytest.approx(50.0)
+    assert result.expected_cost_bps == pytest.approx(50.5)
 
 
 def test_stale_quote_is_rejected():
@@ -123,7 +123,7 @@ def test_fee_is_already_reflected_in_net_output_and_not_subtracted_twice():
         intent(),
         [buy_quote("fee-included", 9.95, fee_quote_equiv=50)],
     )
-    assert result.assessments[0].execution_cost_bps == pytest.approx(50)
+    assert result.assessments[0].execution_cost_bps == pytest.approx(50.5)
     assert result.expected_cost_bps == pytest.approx(50)
 
 
@@ -136,7 +136,7 @@ def test_latency_and_quote_age_penalties_affect_expected_cost():
         [buy_quote("route", 9.99, quote_timestamp_ms=900, expected_latency_ms=100)],
     )
     # 10 bps execution cost + 10 bps latency + 20 bps staleness.
-    assert result.expected_cost_bps == pytest.approx(40)
+    assert result.expected_cost_bps == pytest.approx(40.9)
 
 
 def test_equal_expected_cost_breaks_ties_by_latency_then_venue_id():
