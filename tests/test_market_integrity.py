@@ -297,3 +297,17 @@ def test_report_requires_review_when_review_or_high_flags_exist():
     ]
     report = MarketIntegrityAnalyzer(config()).analyze(events)
     assert report.requires_review is True
+
+
+def test_round_trip_requires_low_net_base_inventory_not_just_balanced_quote_notional():
+    events = [
+        trade("wallet-a", "buy", signature="buy", timestamp=10, quote=100_000, base=2_000_000),
+        trade("wallet-a", "sell", signature="sell", timestamp=20, quote=100_000, base=1_000_000),
+    ]
+    result = MarketIntegrityAnalyzer(config()).analyze(events).markets[0]
+    assert not any(f.code == "SINGLE_WALLET_RAPID_ROUND_TRIP" for f in result.flags)
+    activity = result.wallet_activity[0]
+    assert activity.buy_base_amount == pytest.approx(2)
+    assert activity.sell_base_amount == pytest.approx(1)
+    assert activity.net_base_amount == pytest.approx(1)
+    assert activity.turnover_ratio == pytest.approx(2 / 3)
