@@ -16,6 +16,7 @@ dev = ["pytest>=8.0"]
 pump-sim = "pump_sim.cli:main"
 pump-calibrate = "pump_sim.calibrate:main"
 pump-replay = "pump_sim.replay_cli:main"
+solana-block-export = "pump_sim.block_export_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
