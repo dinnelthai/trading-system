@@ -29,6 +29,7 @@ Continuously evaluate and improve:
 5. **Liquidity efficiency** — capital utilization, fee income, withdrawability, and depth persistence.
 6. **Market resilience** — how price basis and executable depth behave after shocks.
 7. **Market integrity** — real independent participation, transparent ownership, and absence of fabricated activity.
+8. **Treasury exit quality** — risk-adjusted realized proceeds, beneficial-owner exposure reduction, route-aware execution and remaining obligations.
 
 A healthy market is not necessarily a low-volatility market. Genuine information, demand, and supply can produce sharp moves. The system should reduce avoidable execution failures and fragility, not suppress legitimate price discovery.
 
@@ -308,6 +309,7 @@ where:
 
 - \(R_t\): protocol reserves and pool/curve state.
 - \(I_t\): Token and quote inventory by owner and location.
+- \(T_t\): Treasury beneficial ownership, source-specific cost basis, vesting/unlock schedule, realized proceeds and exit mandate.
 - \(L_t\): liquidity positions, bins/ranges, LP ownership and withdrawability.
 - \(F_t\): observed and estimated participant flow.
 - \(V_t\): volatility and regime state.
@@ -331,6 +333,7 @@ where:
 - \(u_E\): execution parameters and scheduling.
 - \(u_P\): protocol/venue selection and position parameters.
 - \(u_R\): risk limits, pause and mode changes.
+- \(u_T\): treasury HOLD, partial-exit and permitted route-selection proposals.
 
 The market evolves according to:
 
@@ -643,6 +646,7 @@ A research result is not accepted because one chart looks better. It must:
 | Risk and integrity constraints have veto priority over quality and return objectives | Locked |
 | LP action policy is proportional ADD / HOLD / REMOVE / PAUSE | Proposed policy |
 | Next research priority is the Market Making Decision Orchestrator | Locked |
+| Dev Treasury & Exit Engine is a separate proposal engine; adaptive exit remains research-only | Locked |
 
 ---
 
