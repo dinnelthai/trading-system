@@ -202,6 +202,8 @@ class MarketIntegrityMetrics:
     unknown_attribution_volume_quote: float
     related_or_controlled_volume_quote: float
     suspected_non_independent_volume_quote: float
+    verified_linked_owner_volume_quote: float
+    verified_linked_owner_wallets: int
     top_wallet_volume_share: float
     wallet_volume_hhi: float
     wallet_activity: tuple[WalletActivity, ...]
@@ -312,6 +314,17 @@ class MarketIntegrityAnalyzer:
             market_results.append(metrics)
             all_flags.extend(metrics.flags)
 
+        for link in weak_links:
+            all_flags.append(
+                IntegrityFlag(
+                    "WEAK_WALLET_LINK_EVIDENCE",
+                    "info",
+                    "A non-conclusive wallet relationship signal was retained for review and was not used to merge beneficial-owner clusters",
+                    tuple(sorted((link.wallet_a, link.wallet_b))),
+                    metrics=(("confidence", link.confidence),),
+                )
+            )
+
         cluster_roots = {
             union.find(wallet)
             for link in strong_links
@@ -386,9 +399,13 @@ class MarketIntegrityAnalyzer:
             )
         wallet_activity.sort(key=lambda item: (-item.gross_volume_quote, item.wallet_id))
 
-        shares = [volume / total_volume for volume in wallet_volume.values()] if total_volume > 0 else []
-        top_share = max(shares, default=0.0)
-        hhi = math.fsum(share * share for share in shares)
+        attributed_wallet_volume = math.fsum(wallet_volume.values())
+        owner_shares = (
+            [volume / attributed_wallet_volume for volume in wallet_volume.values()]
+            if attributed_wallet_volume > 0 else []
+        )
+        top_share = max(wallet_volume.values(), default=0.0) / total_volume if total_volume > 0 else 0.0
+        hhi = math.fsum(share * share for share in owner_shares)
         flags: list[IntegrityFlag] = []
 
         if top_share >= self.config.concentration_review_share and total_volume > 0:
@@ -431,6 +448,13 @@ class MarketIntegrityAnalyzer:
         owner_groups: dict[str, list[str]] = defaultdict(list)
         for wallet in wallet_events:
             owner_groups[union.find(wallet)].append(wallet)
+        linked_owner_wallets = {
+            wallet
+            for wallets in owner_groups.values()
+            if len(wallets) >= self.config.min_related_wallets
+            for wallet in wallets
+        }
+        linked_owner_volume = math.fsum(wallet_volume[wallet] for wallet in linked_owner_wallets)
         for root, wallets in owner_groups.items():
             if len(wallets) < self.config.min_related_wallets:
                 continue
@@ -443,7 +467,7 @@ class MarketIntegrityAnalyzer:
                 flags.append(
                     IntegrityFlag(
                         "RELATED_OWNER_BALANCED_TURNOVER",
-                        "high",
+                        "review",
                         "Verified related wallets generated substantial two-way turnover; review whether this activity belongs in independent-volume estimates",
                         tuple(sorted(wallets)),
                         min(e.timestamp for e in group_events),
@@ -480,6 +504,8 @@ class MarketIntegrityAnalyzer:
             unknown_attribution_volume_quote=attribution_volume[Attribution.UNKNOWN],
             related_or_controlled_volume_quote=attribution_volume[Attribution.RELATED_OR_CONTROLLED],
             suspected_non_independent_volume_quote=attribution_volume[Attribution.SUSPECTED_NON_INDEPENDENT],
+            verified_linked_owner_volume_quote=linked_owner_volume,
+            verified_linked_owner_wallets=len(linked_owner_wallets),
             top_wallet_volume_share=top_share,
             wallet_volume_hhi=hhi,
             wallet_activity=tuple(wallet_activity),
