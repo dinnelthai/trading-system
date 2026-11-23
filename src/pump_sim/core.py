@@ -38,6 +38,10 @@ class SimConfig:
     pool_lp_fee_share: float = 0.70
     initial_lp_lock_fraction: float = 1.0
     dev_lp_quote_budget: float = 10.0
+    dev_vesting_start_s: float = 3600.0
+    dev_vesting_interval_s: float = 3600.0
+    dev_vesting_fraction_per_interval: float = 0.0
+    dev_treasury_sale_fraction: float = 0.0
     external_fee_bps: float = 8.0
     external_depth_quote: float = 50.0
     external_initial_token_reserve: float = 100_000_000.0
@@ -71,6 +75,10 @@ class SimConfig:
             raise ValueError("dev_locked_fraction must be in [0, 1]")
         if not 0 <= self.pool_lp_fee_share <= 1 or not 0 <= self.initial_lp_lock_fraction <= 1:
             raise ValueError("LP fee share and initial LP lock fraction must be in [0, 1]")
+        if self.dev_vesting_interval_s <= 0:
+            raise ValueError("dev_vesting_interval_s must be positive")
+        if not 0 <= self.dev_vesting_fraction_per_interval <= 1 or not 0 <= self.dev_treasury_sale_fraction <= 1:
+            raise ValueError("Dev vesting and scheduled sale fractions must be in [0, 1]")
         if not 0 <= self.feed_drop_probability < 1:
             raise ValueError("feed_drop_probability must be in [0, 1)")
         if not 0 <= self.feed_duplicate_probability < 1:
@@ -518,6 +526,9 @@ class SimulationEngine:
         self.dev: Optional[Agent] = None
         self.mev_agents: List[Agent] = []
         self._create_agents()
+        self.dev_initial_locked_balance = self.config.dev_allocation * self.config.dev_locked_fraction
+        self.dev_locked_balance = self.dev_initial_locked_balance
+        self.next_dev_vesting_s = self.config.dev_vesting_start_s
         self.time = 0.0
         self.attention = 1.0
         self.sentiment = 0.0
@@ -670,6 +681,21 @@ class SimulationEngine:
             arrival, _, price, volume = heapq.heappop(self.feed_queue)
             self.observed_candles.update(arrival, price, volume)
 
+    def _process_dev_vesting(self, timestamp: float) -> None:
+        if self.dev is None or self.config.dev_vesting_fraction_per_interval <= 0:
+            return
+        while timestamp >= self.next_dev_vesting_s and self.dev_locked_balance > EPS:
+            unlock = min(self.dev_locked_balance, self.dev_initial_locked_balance * self.config.dev_vesting_fraction_per_interval)
+            if unlock <= EPS:
+                break
+            self.dev_locked_balance -= unlock
+            self.market.locked_supply = max(0.0, self.market.locked_supply - unlock)
+            self.dev.account.tokens += unlock
+            sale_amount = unlock * self.config.dev_treasury_sale_fraction
+            if sale_amount > EPS:
+                self._schedule(self.dev, Action("sell", amount=sale_amount), self.next_dev_vesting_s)
+            self.next_dev_vesting_s += self.config.dev_vesting_interval_s
+
     def _handle_migration(self) -> None:
         if self._migration_handled or self.market.phase != Phase.POOL or self.dev is None:
             return
@@ -797,6 +823,7 @@ class SimulationEngine:
             now = i * self.config.step_s
             self.time = now
             self._transition_regime(self.config.step_s)
+            self._process_dev_vesting(now)
             self._drain_feed(now)
             snapshot = self._snapshot(now)
 
@@ -905,7 +932,8 @@ class SimulationEngine:
             "top_holder_share": self._snapshot(self.config.duration_s).top_holder_share,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
             "dev_total_token_exposure": (self.dev.account.tokens + (self.market.pool.token_reserve * self.dev.account.lp_shares / max(self.market.pool.total_lp_shares, EPS) if self.dev and self.market.pool else 0.0)) if self.dev else 0.0,
-            "dev_locked_tokens": self.config.dev_allocation * self.config.dev_locked_fraction,
+            "dev_locked_tokens": self.dev_locked_balance,
+            "dev_vested_tokens": self.dev_initial_locked_balance - self.dev_locked_balance,
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
             "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
             "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
