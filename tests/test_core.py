@@ -12,6 +12,7 @@ from pump_sim.core import (
     SimConfig,
     SimulationEngine,
     Traits,
+    Trade,
     run_monte_carlo,
     run_parameter_sweep,
 )
@@ -509,3 +510,37 @@ def test_parameter_sweep_runs_independent_scenarios():
     assert len(result["scenarios"]) == 2
     assert result["scenarios"][0]["value"] == 2
     assert result["scenarios"][1]["value"] == 4
+
+
+def test_simulation_summary_includes_canonical_market_integrity_projection():
+    engine = SimulationEngine(
+        SimConfig(
+            seed=909,
+            duration_s=10,
+            n_snipers=0,
+            n_kols=0,
+            n_arbitrageurs=0,
+            n_retail=0,
+            n_whales=0,
+            n_lp_providers=0,
+            n_mev_risk_agents=0,
+        )
+    )
+    engine.trades.extend(
+        [
+            Trade(1.0, "dev-000", "dev", "buy", "pump_swap_pool", 1.0, 10.0, 10.0, 0.0, 0.0),
+            Trade(2.0, "retail-000", "retail", "sell", "pump_swap_pool", 1.0, 10.0, 10.0, 0.0, 0.0),
+        ]
+    )
+
+    result = engine.summary()
+    integrity = result["market_integrity"]
+    market = integrity["markets"][0]
+
+    assert integrity["attribution_basis"] == "simulation_agent_identity_ground_truth"
+    assert integrity["accepted_swap_count"] == 2
+    assert market["accepted_swap_count"] == 2
+    assert market["volume_quote"] == pytest.approx(20.0)
+    assert market["verified_independent_volume_quote"] == pytest.approx(10.0)
+    assert market["related_or_controlled_volume_quote"] == pytest.approx(10.0)
+    assert market["unique_wallets"] == 2
