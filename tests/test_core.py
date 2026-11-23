@@ -55,7 +55,7 @@ def test_curve_migrates_when_real_token_inventory_is_exhausted_with_continuous_p
     assert engine.market.phase.value == "pump_swap_pool"
     assert engine.market.pool is not None
     assert engine.market.pool.token_reserve == pytest.approx(206_900_000.0)
-    assert engine.market.pool.quote_reserve == pytest.approx(85.0 - 0.015000001)
+    assert engine.market.pool.quote_reserve == pytest.approx(engine.market.curve.real_quote - 0.015000001)
     assert abs(engine.market.migration_price_gap_bps) < 2.0
     assert engine.market.initial_lp_locked_shares > 0
 
@@ -209,12 +209,13 @@ def test_lp_withdrawal_resets_returned_token_cost_basis_to_withdrawal_price():
 def test_arbitrage_accounts_for_external_venue_fees():
     engine = SimulationEngine(SimConfig(seed=405, duration_s=10))
     arb = next(agent for agent in engine.agents if agent.kind == "arbitrageur")
-    engine.market.pool = ConstantProductPool(1_000_000.0, 1.0, 30.0)
+    engine.market.pool = ConstantProductPool(100_000_000.0, 100.0, 30.0)
     engine.market.phase = Phase.POOL
     engine.reference_price = engine.market.price * 1.20
+    arb.account.quote = 10.0
     initial_external_tokens = engine.market.external_token_reserve
 
-    engine._execute(arb, Action("arb_buy_local", amount=2.0), 1.0)
+    engine._execute(arb, Action("arb_buy_local", amount=0.1), 1.0)
 
     assert engine.total_external_fees_quote > 0
     assert engine.market.external_token_reserve > initial_external_tokens
