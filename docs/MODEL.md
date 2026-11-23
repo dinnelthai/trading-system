@@ -75,7 +75,7 @@ The Pump public program documentation describes the bonding curve as a constant-
 
 ### Bonding curve
 
-The curve uses virtual reserves \(x\) (token) and \(y\) (quote), with \(k=xy\). A buy of gross quote \(q\) pays a fee \(f\), so \(q_n=q(1-f)\), and receives:
+The curve uses virtual reserves \(x\) (token) and \(y\) (quote), with \(k=xy\). The simulator calculates protocol and creator fees separately, supports market-cap fee tiers, and keeps V3 protocol/creator fees in a separate pending-fee vault. For a continuous all-in quote budget \(G\) and combined rate \(r\), the reserve input is \(N=G/(1+r)\), so the reserve input excludes fee balances.
 
 \[
 \Delta x = x - \frac{xy}{y+q_n}
@@ -107,7 +107,7 @@ At migration:
 
 The default migration fee is 0.015000001 quote units, based on the published SOL migration-fee field. The default reserve values are rounded public-documentation values, so a small migration price gap is expected. A test asserts that the default migration gap stays within 3 bps.
 
-The simulator models the standard completion-and-migrate path. It does not yet implement the newer v3 synthetic-migration oversized-buy path, where the completing buy can also trade against the pool reserves before the pool is created. That path is documented separately in Pump's synthetic migration specification and is a future fidelity upgrade.
+The simulator supports the V3 synthetic-migration path. A completing buy can exhaust the remaining real curve inventory and spend its remaining budget against the pool-to-be using the bonding-curve fee schedule. The post-completion pool reserves are updated before migration, so the pool opens at the price where the synthetic buy stopped. The legacy/partial-fill path remains configurable through curve_synthetic_migration=false. See [R02 — Bonding Curve Mathematics and Execution](BONDING_CURVE.md) and Pump's [synthetic migration specification](https://github.com/pump-fun/pump-public-docs/blob/main/docs/SYNTHETIC_MIGRATION.md).
 
 ### Post-graduation pool
 
