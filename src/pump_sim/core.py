@@ -1451,11 +1451,21 @@ class SimulationEngine:
         accounted_supply = math.fsum((agent_token_inventory, market_token_inventory, self.market.external_token_reserve, self.market.locked_supply))
         curve_trades = [trade for trade in self.trades if trade.phase == Phase.CURVE.value]
         pool_trades = [trade for trade in self.trades if trade.phase == Phase.POOL.value]
-        def flow_metrics(tape: List[Trade]) -> Dict[str, float]:
+        def flow_metrics(tape: List[Trade], curve_leg_only: bool = False) -> Dict[str, float]:
             buys = [trade for trade in tape if trade.side in ("buy", "arb_buy_local")]
             sells = [trade for trade in tape if trade.side in ("sell", "arb_sell_local")]
-            buy_volume = math.fsum(trade.quote_amount for trade in buys)
-            sell_volume = math.fsum(trade.quote_amount for trade in sells)
+            if curve_leg_only:
+                buy_volume = math.fsum(
+                    trade.curve_quote_amount if trade.curve_quote_amount > 0 else trade.quote_amount
+                    for trade in buys
+                )
+                sell_volume = math.fsum(
+                    trade.curve_quote_amount if trade.curve_quote_amount > 0 else trade.quote_amount
+                    for trade in sells
+                )
+            else:
+                buy_volume = math.fsum(trade.quote_amount for trade in buys)
+                sell_volume = math.fsum(trade.quote_amount for trade in sells)
             return {
                 "buy_trades": len(buys),
                 "sell_trades": len(sells),
@@ -1463,9 +1473,26 @@ class SimulationEngine:
                 "sell_volume_quote": sell_volume,
                 "net_quote_flow": buy_volume - sell_volume,
             }
-        curve_flow = flow_metrics(curve_trades)
+        curve_flow = flow_metrics(curve_trades, curve_leg_only=True)
         pool_flow = flow_metrics(pool_trades)
-        curve_progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS))
+        curve_progress = (
+            1.0 if self.market.graduated_at is not None
+            else max(0.0, min(1.0, 1.0 - self.market.curve.real_tokens / max(self.market.curve.initial_real_tokens, EPS)))
+        )
+        curve_quote_at_migration = (
+            self.market.curve_quote_reserve_at_migration
+            if self.market.curve_quote_reserve_at_migration is not None
+            else self.market.curve.real_quote
+        )
+        synthetic_migration_trades = [
+            trade for trade in self.trades if trade.synthetic_pool_quote_amount > EPS
+        ]
+        synthetic_migration_quote_volume = math.fsum(
+            trade.synthetic_pool_quote_amount for trade in synthetic_migration_trades
+        )
+        synthetic_migration_token_volume = math.fsum(
+            trade.synthetic_pool_token_amount for trade in synthetic_migration_trades
+        )
         true_by_start = {bar.start: bar for bar in true_bars}
         observed_by_start = {bar.start: bar for bar in observed_bars}
         matched_starts = sorted(set(true_by_start) & set(observed_by_start))
@@ -1482,6 +1509,16 @@ class SimulationEngine:
             "migration_price_before": self.market.migration_price_before,
             "migration_price_after": self.market.migration_price_after,
             "migration_price_gap_bps": self.market.migration_price_gap_bps,
+            "curve_terminal_price": self.market.curve_terminal_price,
+            "curve_market_cap_quote": self.market.curve.market_cap_quote,
+            "curve_spot_price": self.market.curve.price,
+            "curve_completion_flag": self.market.curve.complete,
+            "curve_quote_reserve_at_migration": self.market.curve_quote_reserve_at_migration,
+            "curve_quote_raise_progress": curve_quote_at_migration / max(self.config.graduation_quote_reserve, EPS),
+            "market_buy_depth_quote": self.market.depth_quote_for_side("buy"),
+            "market_sell_depth_quote": self.market.depth_quote_for_side("sell"),
+            "curve_buy_depth_quote": self.market.curve.buy_depth_quote(self.config.curve_depth_impact_bps / 10_000.0) if self.market.phase == Phase.CURVE else 0.0,
+            "curve_sell_depth_quote": self.market.curve.sell_depth_quote(self.config.curve_depth_impact_bps / 10_000.0) if self.market.phase == Phase.CURVE else 0.0,
             "duration_s": self.config.duration_s,
             "total_supply": self.config.total_supply,
             "accounted_token_supply": accounted_supply,
@@ -1496,6 +1533,16 @@ class SimulationEngine:
             "curve_real_quote_reserve": self.market.curve.real_quote,
             "curve_real_token_reserve": self.market.curve.real_tokens,
             "curve_token_account_balance": self.market.curve.token_account_balance,
+            "curve_fee_vault_quote": self.market.curve.fee_vault_quote,
+            "curve_account_quote_balance": self.market.curve.curve_account_quote_balance if hasattr(self.market.curve, "curve_account_quote_balance") else self.market.curve.account_quote_balance,
+            "curve_protocol_fees_pending_quote": self.market.curve.protocol_fees_pending,
+            "curve_creator_fees_pending_quote": self.market.curve.creator_fees_pending,
+            "curve_protocol_fees_paid_quote": self.market.curve.protocol_fees_paid,
+            "curve_creator_fees_paid_quote": self.market.curve.creator_fees_paid,
+            "curve_buyback_fees_paid_quote": self.market.curve.buyback_fees_paid,
+            "curve_fees_paid_out_quote": self.market.curve.fees_paid_out_quote,
+            "curve_total_fees_collected_quote": self.market.curve.fees_collected,
+            "curve_selected_total_fee_bps": self.market.curve.fee_rates().total_fee_bps,
             "curve_migration_token_reserve": self.market.curve_migration_token_reserve,
             "pool_migration_fee_quote": self.config.pool_migration_fee_quote,
             "curve_progress": curve_progress,
@@ -1504,6 +1551,9 @@ class SimulationEngine:
             "curve_buy_volume_quote": curve_flow["buy_volume_quote"],
             "curve_sell_volume_quote": curve_flow["sell_volume_quote"],
             "curve_net_quote_flow": curve_flow["net_quote_flow"],
+            "synthetic_migration_trades": len(synthetic_migration_trades),
+            "synthetic_migration_quote_volume": synthetic_migration_quote_volume,
+            "synthetic_migration_token_volume": synthetic_migration_token_volume,
             "pool_buy_trades": pool_flow["buy_trades"],
             "pool_sell_trades": pool_flow["sell_trades"],
             "pool_buy_volume_quote": pool_flow["buy_volume_quote"],
@@ -1520,6 +1570,13 @@ class SimulationEngine:
             "external_fees_quote": self.total_external_fees_quote,
             "total_fees_including_external_quote": self.total_fees_quote + self.total_external_fees_quote,
             "estimated_mev_risk_cost_quote": self.total_mev_risk_cost,
+            "orders_submitted": self.orders_submitted,
+            "orders_executed": self.orders_executed,
+            "orders_failed": self.orders_failed,
+            "slippage_reverts": self.slippage_reverts,
+            "order_execution_success_rate": self.orders_executed / max(self.orders_submitted, 1),
+            "mean_order_latency_s": self.order_latency_sum_s / max(self.order_latency_count, 1),
+            "max_order_latency_s": self.order_latency_max_s,
             "feed_dropped_events": self.feed_dropped,
             "feed_duplicate_events": self.feed_duplicates,
             "true_candles": len(self.true_candles.bars()),
