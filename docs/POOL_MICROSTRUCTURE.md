@@ -288,6 +288,10 @@ An unmatched candle can be caused by feed latency moving the event across a bar 
 6. Observed candle volume may differ from true volume due to feed drops, delays, and duplicates.
 7. Execution/VWAP price and post-swap spot price must remain separate in every report.
 
+## 7. Market-quality metric integration
+
+R03 supplies the pool-level primitives for the broader R08–R19 market-quality system: fee-aware side-specific depth, LP ownership, pool-state events, execution/VWAP price and true-versus-observed candle diagnostics. The cross-venue reference, basis recovery, trade markout, fairness and lifecycle metrics are specified in [Market Quality Metrics](MARKET_QUALITY_METRICS.md) and are not implied to be implemented by R03.
+
 ## 7. Implementation
 
 - `src/pump_sim/pool_analytics.py`: exact fee-aware depth, LP ownership, and candle comparison metrics.
