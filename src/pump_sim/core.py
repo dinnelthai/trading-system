@@ -470,6 +470,9 @@ class Market:
         )
         self.pool: Optional[ConstantProductPool] = None
         self.initial_lp_locked_shares = 0.0
+        self.migration_price_before: Optional[float] = None
+        self.migration_price_after: Optional[float] = None
+        self.migration_price_gap_bps: Optional[float] = None
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
         self.external_token_reserve = config.external_initial_token_reserve
@@ -534,6 +537,7 @@ class Market:
             return False
         if self.curve.real_tokens <= EPS or self.curve.real_quote <= EPS:
             return False
+        self.migration_price_before = self.curve.price
         self.pool = ConstantProductPool(
             self.curve.real_tokens,
             self.curve.real_quote,
@@ -541,6 +545,8 @@ class Market:
             self.config.pool_lp_fee_share,
         )
         self.initial_lp_locked_shares = self.pool.total_lp_shares * self.config.initial_lp_lock_fraction
+        self.migration_price_after = self.pool.price
+        self.migration_price_gap_bps = (self.migration_price_after / max(self.migration_price_before, EPS) - 1.0) * 10_000.0
         self.phase = Phase.POOL
         self.graduated_at = timestamp
         return True
@@ -949,6 +955,9 @@ class SimulationEngine:
             "phase": self.market.phase.value,
             "graduated": self.market.graduated_at is not None,
             "graduated_at_s": self.market.graduated_at,
+            "migration_price_before": self.market.migration_price_before,
+            "migration_price_after": self.market.migration_price_after,
+            "migration_price_gap_bps": self.market.migration_price_gap_bps,
             "duration_s": self.config.duration_s,
             "total_supply": self.config.total_supply,
             "accounted_token_supply": accounted_supply,
