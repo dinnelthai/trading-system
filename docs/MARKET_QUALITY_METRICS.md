@@ -684,6 +684,8 @@ No live execution is authorized by this specification.
 
 The mathematical research sequence R08–R19 is now specified. This closes the current theory backlog at the specification level, not the implementation or empirical-validation backlog.
 
+The pure route-choice and risk-arbitration primitives are implemented in [Route Selection](ROUTE_SELECTION.md) and [Decision Orchestrator](DECISION_ORCHESTRATOR.md). They consume supplied data and return recommendations only; no live execution is present.
+
 The remaining unknowns are empirical and protocol-specific:
 
 - exact versioned PumpSwap state/fee semantics;
