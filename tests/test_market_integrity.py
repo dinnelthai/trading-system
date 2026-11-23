@@ -107,6 +107,8 @@ def test_strong_verified_control_evidence_merges_owner_cluster():
         events, wallet_links=[strong_link("wallet-a", "wallet-b")]
     )
     assert report.owner_cluster_count == 1
+    assert report.markets[0].verified_linked_owner_wallets == 2
+    assert report.markets[0].verified_linked_owner_volume_quote == pytest.approx(200)
     assert any(flag.code == "RELATED_OWNER_BALANCED_TURNOVER" for flag in report.flags)
 
 
@@ -187,6 +189,7 @@ def test_wallet_volume_concentration_and_hhi_are_reported():
     result = MarketIntegrityAnalyzer(config()).analyze(events).markets[0]
     assert result.top_wallet_volume_share == pytest.approx(0.9)
     assert result.wallet_volume_hhi == pytest.approx(0.82)
+    assert result.verified_linked_owner_volume_quote == 0
     assert any(f.code == "WALLET_VOLUME_CONCENTRATION" for f in result.flags)
 
 
