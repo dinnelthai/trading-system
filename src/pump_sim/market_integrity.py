@@ -126,7 +126,7 @@ class IntegrityConfig:
     min_cluster_volume_quote: float = 100.0
     concentration_review_share: float = 0.50
     hhi_review_threshold: float = 0.25
-    sell_pressure_depth_multiple: float = 2.0
+    flow_depth_multiple: float = 2.0
     max_abs_basis_bps: float = 500.0
     max_depth_observation_age_s: int = 15
 
@@ -143,7 +143,7 @@ class IntegrityConfig:
                 raise ValueError(f"{name} must be a positive integer")
         for name in (
             "min_round_trip_volume_quote", "min_cluster_volume_quote",
-            "sell_pressure_depth_multiple", "max_abs_basis_bps",
+            "flow_depth_multiple", "max_abs_basis_bps",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -609,7 +609,7 @@ class MarketIntegrityAnalyzer:
             buy_volume = buy_volume_by_window[window]
             if depth.buy_depth_quote > 0 and buy_volume > 0:
                 pressure = buy_volume / depth.buy_depth_quote
-                if pressure >= self.config.sell_pressure_depth_multiple:
+                if pressure >= self.config.flow_depth_multiple:
                     flags.append(
                         IntegrityFlag(
                             "BUY_FLOW_EXCEEDS_EXECUTABLE_DEPTH",
@@ -623,7 +623,7 @@ class MarketIntegrityAnalyzer:
             sell_volume = sell_volume_by_window[window]
             if depth.sell_depth_quote > 0 and sell_volume > 0:
                 pressure = sell_volume / depth.sell_depth_quote
-                if pressure >= self.config.sell_pressure_depth_multiple:
+                if pressure >= self.config.flow_depth_multiple:
                     flags.append(
                         IntegrityFlag(
                             "SELL_FLOW_EXCEEDS_EXECUTABLE_DEPTH",
