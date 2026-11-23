@@ -135,9 +135,13 @@ R03 distinguishes pre-trade marginal spot price, swap execution/VWAP price, and 
 
 Pool-state events can record migration, LP additions, LP removals, and swaps with before/after reserves, price, (k), and depth. The detailed trace is opt-in through `record_pool_event_trace=true`; aggregate metrics remain available by default. See [R03 — Pool Microstructure and Candle Diagnostics](POOL_MICROSTRUCTURE.md).
 
-### Cross-venue arbitrage
+### Cross-venue arbitrage and route-choice limitation
 
-The external venue is a simplified post-graduation reference venue with a stochastic reference price, external fee, finite quote depth, and separately accounted token inventory. Arbitrageurs do not trade against a fictitious second venue during the bonding-curve phase. The external venue is not yet a second fully calibrated AMM.
+The external venue is currently a simplified post-graduation arbitrage counterparty with a stochastic reference price, external fee, finite quote reserve, and separately accounted token inventory. It is not yet a fully executable competing AMM with independent side-specific quotes and retail/whale/sniper route choice.
+
+Ordinary participant buy/sell decisions currently execute against the local curve/pool. Arbitrageurs compare the local pool with the external reference and finite external quote reserve. Slippage tolerance can cause local orders to fail, but the model does not yet estimate a trader's choice among local pool, alternative venues, and no-trade.
+
+Therefore, current outputs support pool depth, execution slippage, failed-order and arbitrage-capacity analysis, but do not identify a complete behavioral depth elasticity. See [Pool Depth Elasticity — Genuine Volume, Routing Choice, and Experiment Design](DEPTH_ELASTICITY.md) for the missing model and its causal experiment design.
 
 ## 5. Endogenous attention and regimes
 
