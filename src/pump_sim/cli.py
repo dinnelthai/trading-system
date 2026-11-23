@@ -22,6 +22,13 @@ def _flatten_run(row: Dict[str, object]) -> Dict[str, object]:
                 for metric, value in metrics.items():
                     if not isinstance(value, (dict, list, tuple)):
                         flat[f"{role}_{metric}"] = value
+    scenario_metrics = row.get("metrics", {})
+    if isinstance(scenario_metrics, dict):
+        for metric, stats in scenario_metrics.items():
+            if isinstance(stats, dict):
+                for statistic, value in stats.items():
+                    if not isinstance(value, (dict, list, tuple)):
+                        flat[f"{metric}_{statistic}"] = value
     return flat
 
 
