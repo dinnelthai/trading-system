@@ -90,7 +90,7 @@ MQS=100\prod_j q_j^{w_j},
 \qquad w_j\ge0,\quad \sum_jw_j=1
 \]
 
-The dashboard must show all seven components, confidence intervals and missing-data flags beside MQS. The score is for comparison, not a standalone control target.
+The dashboard must show all seven components, confidence intervals and missing-data flags beside MQS. If a required component is missing or the reference is invalid, mark MQS unavailable rather than imputing a score. The score is for comparison, not a standalone control target.
 
 **Never include raw volume, price appreciation, low volatility or candle smoothness as direct positive score terms.** Volume is a diagnostic and a fee input only after independent-trade attribution. Low volatility can reflect a quiet market or stale pricing; high volatility can reflect genuine information.
 
@@ -132,12 +132,15 @@ Do not force \(B_\delta=1\) at all times. A legitimate market can have direction
 
 ### 9.3 Pool reserve exposure versus owner inventory exposure
 
-Pool reserve composition measured against an independent reference price \(P^*\):
+Pool reserve composition measured against an independent reference price \(P^*\), using redeemable underlying reserves rather than virtual pricing reserves:
 
 \[
 I_{pool}=
-\frac{P^*X-Y}{P^*X+Y}
+\frac{P^*X^{redeemable}-Y^{redeemable}}
+{P^*X^{redeemable}+Y^{redeemable}}
 \]
+
+The effective quote reserve used to calculate PumpSwap spot price and executable depth is a separate protocol-pricing quantity. It must not be treated as an asset balance or LP redemption claim.
 
 where \(X\) is Token reserve and \(Y\) is quote reserve. Positive values mean Token inventory is worth more than quote reserves at the independent reference; negative values mean quote-heavy exposure.
 
@@ -423,7 +426,7 @@ NLV_o=
 C_o+
 P^*H_o^{free}+
 P^*H_o^{locked}+
-\alpha_o(Q_{pool}+P^*X_{pool})
+\alpha_o(Y_{pool}^{redeemable}+P^*X_{pool}^{redeemable})
 +F_o^{receivable}
 -L_o-C_o^{unsettled}
 \]
@@ -436,7 +439,7 @@ where:
 - \(L_o\): liabilities and committed obligations;
 - \(C_o^{unsettled}\): accrued operational/transaction costs.
 
-If LP fees remain in pool reserves, their value is already inside the LP claim. Do not add them again as separate income. Creator Fee is separate from LP Fee and is recognized only for its actual beneficiary and receivable status.
+For PumpSwap, redeemable quote/token balances must come from the version-correct LP redemption/accounting semantics. Do not substitute the effective pricing reserve or a signed virtual quote reserve for redeemable assets. If LP fees remain in pool reserves, their value is already inside the LP claim. Do not add them again as separate income. Creator Fee is separate from LP Fee and is recognized only for its actual beneficiary and receivable status.
 
 ### 15.2 CPMM LP Delta and Gamma baseline
 
@@ -463,7 +466,7 @@ V_o(P^*)=P^*X_o+Y_o=2\sqrt{k_oP^*}
 =-\frac{X_o}{2P^*}
 \]
 
-This is an analytical baseline, not an exact forecast for PumpSwap with fees, jumps, virtual reserves and discrete transactions. Use the exact state transition for actual NLV. Report total beneficial Token Delta across free inventory, locked inventory and LP claims; do not confuse a proportional LP withdrawal with a Token sale.
+This is an analytical baseline for a standard CPMM where the pricing invariant tracks redeemable LP inventory. It is not an exact forecast for PumpSwap with fees, virtual reserves and discrete transactions. If effective pricing reserves differ from redeemable balances, derive the Greeks from the deployed program's state transition. Use the exact state transition for actual NLV. Report total beneficial Token Delta across free inventory, locked inventory and LP claims; do not confuse a proportional LP withdrawal with a Token sale.
 
 ### 15.3 Risk-adjusted sustainability
 
