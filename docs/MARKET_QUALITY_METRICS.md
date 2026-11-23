@@ -549,7 +549,7 @@ Maintain separate stochastic populations for:
 - project Treasury and disclosed insiders;
 - generic adverse-execution / MEV-risk stress actors.
 
-Each population has distributions, not a single deterministic persona.
+Each population has distributions, not a single deterministic persona. A pure [Multi-Venue Route Selector](ROUTE_SELECTION.md) now evaluates supplied venue quotes against an independent reference, including depth, freshness, latency, settlement probability and a no-trade option. Route-choice response remains uncalibrated until observed intent/route/fill data is available.
 
 ### 17.2 Behavioral state
 
