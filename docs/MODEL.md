@@ -85,7 +85,7 @@ LP shares are proportional claims on pool reserves. Initial migration LP shares 
 
 ### Cross-venue arbitrage
 
-The external venue is represented by a stochastic reference price, an external fee, and a finite quote-depth budget. An arbitrageur's simulated hedge is capped by that depth. It is not a free, infinite-liquidity oracle.
+The external venue is represented by a stochastic reference price, an external fee, finite quote depth, and a separately accounted initial token reserve. Local buys transferred to the reference venue increase its token inventory; local sells consume that inventory and replenish its quote reserve. This keeps token supply accounting explicit. The external venue is still a simplified reference process rather than a second fully calibrated AMM.
 
 ## 4. Endogenous attention and regimes
 
