@@ -1,7 +1,7 @@
 # Market Making Decision Orchestrator
 
 **Document type:** Decision architecture and mathematical research specification  
-**Version:** 0.1  
+**Version:** 0.2  
 **Status:** Architecture and fixed-CPMM transition baseline defined; protocol validation, solver design and simulation validation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Primary venue:** Fixed PumpSwap CPMM pool  
@@ -430,6 +430,22 @@ The orchestrator is not accepted until the simulator proves at least:
 11. **Market integrity:** LP events are not counted as swaps; self-trades and fabricated volume are not rewarded.
 12. **Emergency precedence:** a safety pause is not blocked by normal cooldown or churn penalties.
 
+## 14. Open research after this specification
+
+The architecture is defined, but the following work remains:
+
+- Validate the proportional LP transition baseline against deployed PumpSwap reserve, LP mint/burn, fee, token-transfer and rounding semantics.
+- Define a calibrated stress-scenario library, including correlated sell arrivals and external-reference shocks.
+- Select robust/chance-constraint methods and calibrate their confidence levels from historical residuals.
+- Specify the numerical optimization method and fallback behavior when the problem is infeasible.
+- Derive action sequencing and transaction atomicity/idempotency requirements for the Solana execution path.
+- Implement the orchestrator in the simulator and compare it against simple baseline policies.
+- Validate out-of-sample across multiple launches and market regimes.
+
+**Next research task:** Validate the proportional CPMM transition baseline against PumpSwap instructions and historical transactions, then implement the joint action evaluator and capital-allocation solver under empirical stress scenarios.
+
+No live execution should be enabled merely because this architecture document is complete. Implementation, simulation, paper execution and live authorization remain separate gates.
+
 ## 15. Exact proportional CPMM LP transition baseline
 
 This section derives the ideal constant-product transition for the fixed-pool strategy. It is an analytical baseline, not a substitute for validating PumpSwap's actual LP mint/burn instructions, fee handling, token extensions, rounding and account semantics.
@@ -615,19 +631,3 @@ Before using these equations in production code, verify against the deployed Pum
 - Actual wallet and LP claim deltas from confirmed transactions.
 
 A unit test must reconcile predicted and observed reserve, LP-share and wallet-balance changes for both ADD and REMOVE. Any mismatch blocks use of the analytical formula for live sizing.
-
-## 14. Open research after this specification
-
-The architecture is defined, but the following work remains:
-
-- Derive the exact joint state transition for proportional PumpSwap LP add/remove, wallet inventory and all costs.
-- Define a calibrated stress-scenario library, including correlated sell arrivals and external-reference shocks.
-- Select robust/chance-constraint methods and calibrate their confidence levels from historical residuals.
-- Specify the numerical optimization method and fallback behavior when the problem is infeasible.
-- Derive action sequencing and transaction atomicity/idempotency requirements for the Solana execution path.
-- Implement the orchestrator in the simulator and compare it against simple baseline policies.
-- Validate out-of-sample across multiple launches and market regimes.
-
-**Next research task:** Validate the proportional CPMM transition baseline against PumpSwap instructions and historical transactions, then implement the joint action evaluator and capital-allocation solver under empirical stress scenarios.
-
-No live execution should be enabled merely because this architecture document is complete. Implementation, simulation, paper execution and live authorization remain separate gates.
