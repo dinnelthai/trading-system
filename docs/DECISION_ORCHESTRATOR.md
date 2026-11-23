@@ -222,6 +222,8 @@ For market-making actions, among bundles with the same best feasible quality-ser
 
 For treasury exits, use the separate Dev Treasury & Exit mandate: maximize expected net realizable proceeds plus the risk-adjusted continuation value of remaining inventory, subject to the same hard integrity, ownership, vesting, capital, execution and market-quality constraints. Do not count LP principal as profit or use a weighted score to buy permission to breach a hard gate.
 
+Cash-capital recovery ratio, economic NLV and operating-solvency coverage are separate diagnostics. Do not add capital already recovered as a second reward when it is already represented in treasury cash or NLV. A break-even target never overrides the impact, depth, reserve, ownership or market-integrity gates. Creator Fee is counted only for the actual beneficial recipient and only once; LP fees retained in reserves remain part of the LP claim.
+
 \[
 J_E(b)=
 E[\Pi_{net}(b)]
