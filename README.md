@@ -81,14 +81,19 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
+- [R04 deterministic on-chain event replay](docs/R04_REPLAY.md)
 
 The simulator reports distributions, participant-level outcomes, token and LP concentration, fee-aware pool depth, liquidity add/remove events, fees, drawdown, graduation, execution slippage, and true-versus-observed candle differences. Set `record_pool_event_trace=true` to include the detailed pool-state event trace in a run summary. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
 
 
 ## Empirical calibration
 
-Normalize on-chain swaps to the schema in `docs/CALIBRATION.md`, then run:
+For descriptive swap-only statistics, normalize trades to the schema in `docs/CALIBRATION.md` and run:
 
     pump-calibrate --input data/swaps.csv --out results/calibration.json
 
-The report separates observable trade behavior from latent traits that swaps alone cannot identify. It does not overwrite the synthetic default configuration.
+For deterministic event replay, normalize swaps, liquidity changes, migration, and state snapshots to the v1.0 JSONL contract in `docs/R04_REPLAY.md`, then run:
+
+    pump-replay --input data/normalized_events.jsonl --out results/replay.json
+
+The replay checks event ordering, reserve continuity, LP position continuity, and snapshot drift. It validates only the supplied normalized event stream; it does not certify archive completeness or decode raw Solana instructions. Neither command overwrites the synthetic default configuration.
