@@ -1,11 +1,11 @@
 # Market Making Decision Orchestrator
 
 **Document type:** Decision architecture and mathematical research specification  
-**Version:** 0.2  
+**Version:** 0.3  
 **Status:** Architecture and fixed-CPMM transition baseline defined; protocol validation, solver design and simulation validation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Primary venue:** Fixed PumpSwap CPMM pool  
-**Strategy scope:** Initial liquidity, proportional LP add/remove, spot inventory and capital-risk management
+**Strategy scope:** Initial liquidity, proportional LP add/remove, spot inventory, Dev treasury exit and capital-risk management
 
 ---
 
@@ -13,7 +13,7 @@
 
 The Market Making Decision Orchestrator (MMDO) is the single decision-coordination layer for the Market Making & Market Quality System.
 
-It resolves conflicting proposals from Market Intelligence, Flow Intelligence, Market Quality, Inventory, Liquidity, Execution and Risk. It does not use majority voting, allow each engine to execute independently, or let a market-quality target override capital and integrity constraints.
+It resolves conflicting proposals from Market Intelligence, Flow Intelligence, Market Quality, Inventory, Liquidity, Dev Treasury & Exit, Execution and Risk. It does not use majority voting, allow each engine to execute independently, or let a market-quality target override capital and integrity constraints.
 
 The governing principle is:
 
@@ -46,7 +46,7 @@ Each engine may emit one or more proposals. A proposal must contain:
 | engine_id | Originating engine |
 | state_version | Canonical state version used for analysis |
 | created_at / expires_at | Proposal time-to-live |
-| action_type | HOLD, OBSERVE, ADD_LP_PRO_RATA, REMOVE_LP_PRO_RATA, PAUSE_NEW_ACTIONS, or another explicitly authorized action |
+| action_type | HOLD, OBSERVE, ADD_LP_PRO_RATA, REMOVE_LP_PRO_RATA, SELL_TREASURY_AMM, SELL_TREASURY_OTC, HOLD_TREASURY, PAUSE_NEW_ACTIONS, or another explicitly authorized action |
 | target_pool | Pool identifier, when relevant |
 | quantity | Proposed capital/token amount and units |
 | preconditions | Required balances, protocol state, price/impact bounds and state predicates |
@@ -68,7 +68,7 @@ Engines may recommend actions, but none except the authorized Execution Engine m
 Let the canonical state at decision time t be:
 
 \[
-S_t=(R_t,I_t,L_t,F_t,V_t,C_t,B_t,Q_t,A_t)
+S_t=(R_t,I_t,L_t,I_t^{owner},T_t,F_t,V_t,C_t,B_t,Q_t,A_t)
 \]
 
 where:
@@ -106,8 +106,11 @@ For the current fixed-pool strategy, the core action set is:
 - **REMOVE_LP_PRO_RATA:** Withdraw a specified share proportionally, when justified by risk or capital policy.
 - **PAUSE_NEW_ACTIONS:** Stop new discretionary capital deployment and inventory actions.
 - **RESUME_WITH_LIMITS:** Resume only after the required health checks pass.
+- **SELL_TREASURY_AMM:** Sell an authorized unlocked tranche through a supported curve/AMM route under actual impact and reserve limits.
+- **SELL_TREASURY_OTC:** Settle a documented sale with a genuinely independent counterparty.
+- **HOLD_TREASURY:** Retain eligible treasury exposure when risk-adjusted continuation value exceeds current net realizable proceeds.
 
-Inventory disposition is evaluated as a separate, explicitly authorized spot-risk process. The orchestrator must not route a Dev-controlled trade through the same pool or related wallets to manufacture volume, candles, demand or price signals. Any legitimate treasury or inventory sale must follow its separate mandate, ownership disclosure and execution controls.
+Treasury disposition is proposed by the Dev Treasury & Exit Engine and evaluated jointly with LP, inventory and capital actions. A controlled-wallet transfer is not a sale and does not reduce beneficial ownership. A Dev sale into a pool partly owned by Dev must report gross swap amount separately from the net reduction in beneficial exposure and quote value. The orchestrator must reject self-trades, wash volume, artificial candles, deceptive coordination and hidden-wallet exit policies. Permitted treasury sales require valid unlock, mandate, disclosure, route, impact and settlement checks.
 
 ### 5.1 Action compatibility
 
@@ -134,6 +137,8 @@ Reject a bundle if any of the following is true:
 - The action exceeds the authorized mandate or capital envelope.
 - Asset accounting double-counts LP claims and free inventory.
 - The action would create self-trades, wash volume, artificial candles or deceptive market activity.
+- A claimed external sale is only a transfer among wallets with the same beneficial owner, or counterparty independence/settlement cannot be established to the required confidence.
+- A treasury sale violates vesting, disclosure, legal/mandate or treasury-reserve restrictions.
 - Required transaction preconditions or audit fields are absent.
 
 A failed Stage 0 gate leads to OBSERVE or PAUSE_NEW_ACTIONS, not a speculative fallback trade.
@@ -211,7 +216,11 @@ The target depth is a service objective, not a reason to exceed authorized capit
 
 ### 6.5 Stage 4 — Risk-adjusted economics
 
-Among bundles with the same best feasible quality-service result, maximize:
+For market-making actions, among bundles with the same best feasible quality-service result, maximize:
+
+For treasury exits, apply the separate Dev Treasury & Exit mandate: maximize expected net realizable proceeds plus the risk-adjusted continuation value of remaining inventory, subject to the same hard integrity, ownership, vesting, capital, execution and market-quality constraints. Do not count LP principal as profit or use a weighted score to buy permission to breach a hard gate.
+
+The market-making economic objective is:
 
 \[
 J_E(b)=
@@ -328,6 +337,14 @@ Merge compatible quantities into a single bundle; sequence actions only when dep
 
 Invalidate any proposal whose material preconditions are no longer true. Refresh the canonical state and recompute. Do not execute an expired proposal simply because it was previously approved.
 
+### Case F — Dev proposes a treasury sale while owning part of the pool LP
+
+Recompute the combined wallet-plus-LP transition. For an ideal fee-free CPMM, if Dev owns LP fraction alpha and sells q Token into that same pool, the net beneficial Token reduction is only (1-alpha)q and the net quote benefit is only (1-alpha) times the pool quote output. Report the gross swap and net owner-level exit separately. If alpha is 100%, do not classify the action as a net treasury exit.
+
+### Case G — Dev transfers tokens to a different wallet
+
+If the destination is still controlled by the same beneficial owner, classify the event as an internal transfer. Do not recognize sale proceeds, external distribution or a reduction in Dev concentration. A genuinely independent OTC buyer requires documented consideration and confirmed settlement.
+
 ## 11. Multi-timescale authority
 
 | Layer | Authority | Orchestrator responsibility |
@@ -335,7 +352,7 @@ Invalidate any proposal whose material preconditions are no longer true. Refresh
 | L0 seconds | Data freshness, transaction state, execution guard | Validate state version, enforce transaction bounds, pause on anomalies |
 | L1 minutes | Flow estimates and inventory-risk envelope | Update scenario inputs and risk budgets within strategic limits |
 | L2 hours | LP and capital allocation | Select ADD / HOLD / REMOVE quantities under current constraints |
-| L3 lifecycle | Total authorized capital, treasury mandate and phase policy | Enforce the strategic envelope; require explicit approval for changes |
+| L3 lifecycle | Total authorized capital, treasury mandate, vesting/disclosure policy and phase limits | Enforce the strategic envelope; require explicit approval for changes |
 
 Higher-level layers set constraints; lower-level layers cannot silently expand them. A lower-level safety guard may pause actions immediately. Only the designated governance/owner process can change the strategic capital mandate.
 
@@ -429,6 +446,10 @@ The orchestrator is not accepted until the simulator proves at least:
 10. **Audit replay:** the same state, proposals, parameters and seed reproduce the same decision.
 11. **Market integrity:** LP events are not counted as swaps; self-trades and fabricated volume are not rewarded.
 12. **Emergency precedence:** a safety pause is not blocked by normal cooldown or churn penalties.
+13. **Beneficial-owner accounting:** controlled-wallet transfers do not reduce Dev exposure, count as external distribution or realize profit.
+14. **LP self-internalization:** a Dev sale into its partly owned pool reports gross swap versus net owner-level exposure reduction correctly.
+15. **Vesting and proceeds:** locked tokens cannot be sold; LP principal is not profit; OTC proceeds require confirmed independent settlement.
+16. **Exit-policy comparison:** adaptive exit is compared against no-sale and fixed-schedule baselines on matched seeds using executable terminal value.
 
 ## 14. Open research after this specification
 
@@ -440,9 +461,10 @@ The architecture is defined, but the following work remains:
 - Specify the numerical optimization method and fallback behavior when the problem is infeasible.
 - Derive action sequencing and transaction atomicity/idempotency requirements for the Solana execution path.
 - Implement the orchestrator in the simulator and compare it against simple baseline policies.
+- Integrate the Dev Treasury & Exit Engine; derive optimal stopping, partial liquidation and route selection under beneficial-owner accounting.
 - Validate out-of-sample across multiple launches and market regimes.
 
-**Next research task:** Validate the proportional CPMM transition baseline against PumpSwap instructions and historical transactions, then implement the joint action evaluator and capital-allocation solver under empirical stress scenarios.
+**Next research task:** Derive and validate the Dev Treasury & Exit policy, including the LP-ownership-aware net-exit identity, before implementing joint LP/treasury action bundles and the capital-allocation solver.
 
 No live execution should be enabled merely because this architecture document is complete. Implementation, simulation, paper execution and live authorization remain separate gates.
 
