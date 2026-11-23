@@ -84,3 +84,16 @@ For these, add separately normalized LP events, holder balance snapshots, known 
 7. Keep the synthetic baseline config unchanged; store each calibrated scenario as a separate versioned config.
 
 The report status \`partial_observed_data_only\` is deliberate. Do not treat heuristic labels or inferred behavior as empirical fact.
+
+
+## Historical event replay (R04)
+
+The CSV workflow above remains useful for descriptive trade statistics. It is not a reserve replay and cannot validate LP ownership or migration state.
+
+For R04, use the versioned JSONL event contract in [R04_REPLAY.md](R04_REPLAY.md). It preserves the canonical slot, transaction, instruction, inner-instruction, and event ordering; raw amounts remain integer atoms. The replay validates curve/pool reserve continuity, LP position continuity, migration state, and independent reserve snapshots.
+
+Run:
+
+    pump-replay --input data/normalized_events.jsonl --out results/replay.json
+
+A consistent replay means only that the supplied normalized events reconcile with one another. A protocol-specific raw transaction decoder and a source-archive completeness proof are still required before treating a launch as fully replayed.
