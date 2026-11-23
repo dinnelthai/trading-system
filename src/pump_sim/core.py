@@ -27,6 +27,14 @@ from .curve_math import (
     select_curve_fee_rates,
 )
 from .pool_analytics import candle_comparison_metrics, lp_ownership_metrics, pool_depth_by_price_impact
+from .market_events import (
+    Attribution,
+    CanonicalMarketEvent,
+    EventKind,
+    Finality,
+    QuoteNotionalBasis,
+)
+from .market_integrity import IntegrityConfig, MarketIntegrityAnalyzer
 
 
 EPS = 1e-12
@@ -1582,6 +1590,112 @@ class SimulationEngine:
         self._drain_feed(float("inf"))
         return self.summary()
 
+    def _market_integrity_projection(self) -> Dict[str, object]:
+        """Adapt simulated fills into the same canonical event contract as replay data.
+
+        Simulation agents have explicit synthetic identities, so the fixture
+        attribution is known by construction: Dev is disclosed related activity
+        and all other generated participants are independent agents. This is
+        simulation ground truth, not an inference rule for real wallet data.
+        """
+        events: List[CanonicalMarketEvent] = []
+        for index, trade in enumerate(self.trades):
+            if trade.side in ("buy", "arb_buy_local"):
+                side = "buy"
+            elif trade.side in ("sell", "arb_sell_local"):
+                side = "sell"
+            else:
+                continue
+            base_raw = int(round(trade.token_amount * 1_000_000))
+            quote_raw = int(round(trade.quote_amount * 1_000_000_000))
+            if base_raw <= 0 or quote_raw <= 0:
+                continue
+            events.append(
+                CanonicalMarketEvent(
+                    chain_id="simulation",
+                    signature=f"sim-{self.config.seed}-{index}",
+                    transaction_index=index,
+                    instruction_index=0,
+                    event_index=0,
+                    slot=max(0, int(trade.timestamp / self.config.block_interval_s)),
+                    timestamp=max(0, int(trade.timestamp)),
+                    kind=EventKind.SWAP,
+                    finality=Finality.FINALIZED,
+                    success=True,
+                    program_id="simulated-market",
+                    base_mint="simulated-token",
+                    quote_mint="simulated-quote",
+                    base_decimals=6,
+                    quote_decimals=9,
+                    side=side,
+                    base_amount_raw=base_raw,
+                    quote_amount_raw=quote_raw,
+                    quote_notional_basis=QuoteNotionalBasis.POOL_GROSS,
+                    actor_wallet=trade.actor_id,
+                    attribution=(
+                        Attribution.RELATED_OR_CONTROLLED
+                        if trade.actor_kind == "dev"
+                        else Attribution.VERIFIED_INDEPENDENT
+                    ),
+                    parser_version="simulated-trade-adapter-v1",
+                    source_record_id=f"trade-index-{index}",
+                )
+            )
+        report = MarketIntegrityAnalyzer(IntegrityConfig()).analyze(events)
+        return {
+            "attribution_basis": "simulation_agent_identity_ground_truth",
+            "accepted_swap_count": report.accepted_swap_count,
+            "duplicate_deliveries": report.duplicate_deliveries,
+            "requires_review": report.requires_review,
+            "markets": [
+                {
+                    "base_mint": market.base_mint,
+                    "quote_mint": market.quote_mint,
+                    "quote_notional_basis": market.quote_notional_basis,
+                    "accepted_swap_count": market.accepted_swap_count,
+                    "volume_quote": market.volume_quote,
+                    "unique_wallets": market.unique_wallets,
+                    "unattributed_swap_count": market.unattributed_swap_count,
+                    "unattributed_volume_quote": market.unattributed_volume_quote,
+                    "verified_independent_volume_quote": market.verified_independent_volume_quote,
+                    "unknown_attribution_volume_quote": market.unknown_attribution_volume_quote,
+                    "related_or_controlled_volume_quote": market.related_or_controlled_volume_quote,
+                    "suspected_non_independent_volume_quote": market.suspected_non_independent_volume_quote,
+                    "verified_linked_owner_volume_quote": market.verified_linked_owner_volume_quote,
+                    "verified_linked_owner_wallets": market.verified_linked_owner_wallets,
+                    "top_wallet_volume_share": market.top_wallet_volume_share,
+                    "wallet_volume_hhi": market.wallet_volume_hhi,
+                    "flags": [
+                        {
+                            "code": flag.code,
+                            "severity": flag.severity,
+                            "message": flag.message,
+                            "wallets": list(flag.wallets),
+                            "start_timestamp_s": flag.start_timestamp_s,
+                            "end_timestamp_s": flag.end_timestamp_s,
+                            "metrics": dict(flag.metrics),
+                        }
+                        for flag in market.flags
+                    ],
+                }
+                for market in report.markets
+            ],
+            "flags": [
+                {
+                    "code": flag.code,
+                    "severity": flag.severity,
+                    "message": flag.message,
+                    "wallets": list(flag.wallets),
+                    "start_timestamp_s": flag.start_timestamp_s,
+                    "end_timestamp_s": flag.end_timestamp_s,
+                    "metrics": dict(flag.metrics),
+                }
+                for flag in report.flags
+            ],
+            "owner_cluster_count": report.owner_cluster_count,
+            "weak_link_evidence_count": report.weak_link_evidence_count,
+        }
+
     def summary(self) -> Dict[str, object]:
         price = self.market.price
         outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "lp_unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "lp_token_claim": 0.0, "lp_quote_claim": 0.0, "quote": 0.0})
@@ -1703,6 +1817,7 @@ class SimulationEngine:
         pool_quote_reserve = pool.quote_reserve if pool else 0.0
         pool_spot_price = pool.price if pool else 0.0
         pool_tvl_quote = 2.0 * pool_quote_reserve
+        market_integrity = self._market_integrity_projection()
         return {
             "seed": self.config.seed,
             "phase": self.market.phase.value,
@@ -1733,6 +1848,7 @@ class SimulationEngine:
             "price_return": price / max(self.initial_price, EPS) - 1.0,
             "max_drawdown": self.max_drawdown,
             "trades": len(self.trades),
+            "market_integrity": market_integrity,
             "curve_real_quote_reserve": self.market.curve.real_quote,
             "curve_real_token_reserve": self.market.curve.real_tokens,
             "curve_token_account_balance": self.market.curve.token_account_balance,
