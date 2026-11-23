@@ -580,9 +580,14 @@ class SimulationEngine:
         previous = self.price_history[-1] if self.price_history else price
         momentum = math.log(max(price, EPS) / max(previous, EPS))
         volatility = math.sqrt(sum(x * x for x in self.return_history) / max(1, len(self.return_history)))
-        dev_tokens = self.dev.account.tokens if self.dev else 0.0
         circulating = max(self.config.total_supply - self.market.locked_supply, 1.0)
-        holder_tokens = [a.account.tokens for a in self.agents if a.kind not in ("dev", "mev_risk")]
+        def token_exposure(agent: Agent) -> float:
+            claim = 0.0
+            if self.market.pool and self.market.pool.total_lp_shares > EPS:
+                claim = self.market.pool.token_reserve * agent.account.lp_shares / self.market.pool.total_lp_shares
+            return agent.account.tokens + claim
+        dev_tokens = token_exposure(self.dev) if self.dev else 0.0
+        holder_tokens = [token_exposure(a) for a in self.agents if a.kind not in ("dev", "mev_risk")]
         top_holder = max(holder_tokens, default=0.0) / circulating
         dev_float = dev_tokens / circulating
         progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
@@ -782,24 +787,23 @@ class SimulationEngine:
             self.peak_price = max(self.peak_price, price)
             self.max_drawdown = max(self.max_drawdown, 1.0 - price / max(self.peak_price, EPS))
 
-        while self.order_queue:
-            block_time, _, _, agent, action = heapq.heappop(self.order_queue)
-            self._execute(agent, action, block_time)
-        if self.market.maybe_migrate(float(self.config.duration_s)):
-            self._handle_migration()
         self._drain_feed(float("inf"))
         return self.summary()
 
     def summary(self) -> Dict[str, object]:
         price = self.market.price
-        outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "quote": 0.0})
+        outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "lp_token_claim": 0.0, "quote": 0.0})
         for a in self.agents:
             row = outcomes[a.kind]
+            lp_claim = 0.0
+            if self.market.pool and self.market.pool.total_lp_shares > EPS:
+                lp_claim = self.market.pool.token_reserve * a.account.lp_shares / self.market.pool.total_lp_shares
             row["agents"] += 1
             row["realized_pnl"] += a.account.realized_pnl
             row["unrealized_pnl"] += a.account.tokens * (price - a.account.avg_entry_price)
             row["fees_paid"] += a.account.fees_paid
             row["tokens"] += a.account.tokens
+            row["lp_token_claim"] += lp_claim
             row["quote"] += a.account.quote
         observed_volume = sum(c.volume_quote for c in self.observed_candles.bars())
         true_volume = sum(c.volume_quote for c in self.true_candles.bars())
@@ -829,6 +833,7 @@ class SimulationEngine:
             "sentiment": self.sentiment,
             "dev_supply_share": self.config.dev_allocation / self.config.total_supply,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
+            "dev_total_token_exposure": (self.dev.account.tokens + (self.market.pool.token_reserve * self.dev.account.lp_shares / max(self.market.pool.total_lp_shares, EPS) if self.dev and self.market.pool else 0.0)) if self.dev else 0.0,
             "dev_locked_tokens": self.config.dev_allocation * self.config.dev_locked_fraction,
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
             "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
@@ -884,3 +889,24 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
         "metrics": metrics,
         "run_results": results,
     }
+
+def run_parameter_sweep(config: SimConfig, parameter: str, values: List[object], runs_per_value: int = 100) -> Dict[str, object]:
+    """Run independent Monte Carlo batches while changing one configuration field."""
+    if parameter not in config.__dict__:
+        raise ValueError(f"Unknown SimConfig parameter: {parameter}")
+    if not values:
+        raise ValueError("values must not be empty")
+    rows = []
+    for value in values:
+        data = dict(config.__dict__)
+        data[parameter] = value
+        scenario = SimConfig(**data)
+        result = run_monte_carlo(scenario, runs_per_value)
+        result.pop("run_results", None)
+        rows.append({"parameter": parameter, "value": value, **result})
+    return {
+        "parameter": parameter,
+        "runs_per_value": runs_per_value,
+        "scenarios": rows,
+    }
+
