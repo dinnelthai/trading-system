@@ -1854,7 +1854,18 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
                 "top_holder_share_including_dev", "top_5_holders_share", "wallet_holder_hhi",
                 "beneficial_holder_hhi", "holder_supply_coverage", "wallet_float_supply_share",
                 "observed_to_true_volume_ratio",
-                "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error",
+                "candle_open_mae_bps", "candle_high_mae_bps", "candle_low_mae_bps",
+                "candle_close_mae_bps", "candle_volume_mae_quote", "candle_volume_error_mae_pct",
+                "candle_buy_volume_mae_quote", "candle_sell_volume_mae_quote",
+                "candle_trade_count_mae", "candle_buy_sell_imbalance_mae",
+                "pool_tvl_quote", "pool_k", "pool_buy_depth_1pct_quote",
+                "pool_sell_depth_1pct_quote", "pool_buy_depth_5pct_quote",
+                "pool_sell_depth_5pct_quote", "pool_liquidity_added_quote",
+                "pool_liquidity_removed_quote", "pool_swap_mean_abs_price_impact_bps",
+                "pool_swap_max_abs_price_impact_bps", "pool_trade_mean_execution_slippage_bps",
+                "pool_trade_max_execution_slippage_bps", "lp_locked_share_fraction",
+                "lp_agent_owned_share_fraction", "lp_unassigned_share_fraction", "lp_owner_hhi",
+                "migration_price_gap_bps", "token_supply_accounting_error",
                 "token_supply_accounting_error_fraction"):
         xs = values(key)
         metrics[key] = {
