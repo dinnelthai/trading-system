@@ -32,30 +32,22 @@ Each agent has its own wallet, traits, private random stream, activity clock, la
 
 Python 3.10+; runtime uses only the standard library.
 
-\`\`\`bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pytest -q
-\`\`\`
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e ".[dev]"
+    pytest -q
 
 Run one simulation:
 
-\`\`\`bash
-python -m pump_sim --config configs/default.json --out results/run.json
-\`\`\`
+    python -m pump_sim --config configs/default.json --out results/run.json
 
 Run 100 independent seeds:
 
-\`\`\`bash
-python -m pump_sim --config configs/default.json --runs 100 --out results/monte-carlo.json
-\`\`\`
+    python -m pump_sim --config configs/default.json --runs 100 --out results/monte-carlo.json
 
 Sweep one parameter across scenarios, with 100 seeds per value:
 
-\`\`\`bash
-python -m pump_sim --config configs/default.json --sweep-field dev_allocation --sweep-values 50000000,100000000,150000000,200000000 --runs 100 --out results/dev-concentration.json
-\`\`\`
+    python -m pump_sim --config configs/default.json --sweep-field dev_allocation --sweep-values 50000000,100000000,150000000,200000000 --runs 100 --out results/dev-concentration.json
 
 Any SimConfig field can be supplied in the JSON config. The Python API exposes SimulationEngine, run_monte_carlo, and run_parameter_sweep.
 
