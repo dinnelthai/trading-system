@@ -621,7 +621,7 @@ A research result is not accepted because one chart looks better. It must:
 - Empirical calibration data contract.
 - Initial capital-allocation, inventory-risk and multi-timescale control derivations in the product research discussion.
 
-**Not yet complete:** A canonical state contract, calibrated optimal capital allocator, executable decision orchestrator, complete conflict-resolution policy, and held-out empirical validation across real historical cohorts.
+**Not yet complete:** Implementation of the canonical state and full metric pipeline, multi-venue route-choice engine, calibrated optimal capital allocator, executable decision orchestrator, protocol-exact PumpSwap adapter, and held-out empirical validation across real historical cohorts. The R08–R19 theory specification is documented; it is not evidence that these capabilities are implemented.
 
 **Next workstream:** Formalize the Market Making Decision Orchestrator and its risk-priority hierarchy, then implement the fixed-CPMM action evaluator. The orchestrator must compare HOLD, proportional ADD, proportional REMOVE and PAUSE under identical scenarios; hard safety and capital constraints must never be traded away for a market-quality score. Do not begin live execution until accounting, replay, simulation, risk controls and paper validation pass their acceptance gates.
 
@@ -653,16 +653,22 @@ A research result is not accepted because one chart looks better. It must:
 
 ## 12. Detailed decision and control specifications
 
-The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md). Treasury exit mathematics and beneficial-owner accounting are maintained in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md). Dynamic LP-versus-Treasury allocation, LP Delta/Gamma, fee-turnover/LVR screening and Creator Fee separation are specified in [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
+The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md). Treasury exit mathematics and beneficial-owner accounting are maintained in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md). Dynamic LP-versus-Treasury allocation, LP Delta/Gamma, fee-turnover/LVR screening and Creator Fee separation are specified in [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md). The integrated market-quality metric and lifecycle specification is [Market Quality Metrics](MARKET_QUALITY_METRICS.md).
 
-This parent document defines product direction and system boundaries. The dedicated orchestrator document owns the normative decision rules so that the two documents do not drift.
+This parent document defines product direction and system boundaries. The dedicated orchestrator document owns the normative decision rules so that the two documents do not drift. The integrated R08–R19 mathematical metric, resilience, fairness, integrity, lifecycle and empirical-acceptance specification is maintained in [Market Quality Metrics, Risk, Lifecycle and Validation](MARKET_QUALITY_METRICS.md).
 
-## 13. Next research sequence
+## 13. Next implementation and validation sequence
 
-1. Validate exact PumpSwap proportional LP add/remove accounting against the deployed program semantics.
-2. Implement the canonical state and action-transition contract in the simulator.
-3. Formalize multi-venue route choice and causal depth elasticity using [Pool Depth Elasticity](DEPTH_ELASTICITY.md); then calibrate and implement the LP-versus-Treasury allocator, including fee/LVR economics and tail-risk constraints in [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
-4. Derive and implement Dev Treasury & Exit Intelligence, including beneficial-owner aggregation and optimal-stopping policy.
-5. Implement the decision orchestrator and multi-timescale state machine.
-6. Run historical replay, matched-seed simulation and paper validation before any live authorization.
+The theory backlog R08–R19 is specified in [Market Quality Metrics, Risk, Lifecycle and Validation](MARKET_QUALITY_METRICS.md). Remaining work is implementation and empirical validation, in this order:
+
+1. Validate exact PumpSwap proportional LP add/remove, effective reserve, fee and rounding semantics against deployed program versions.
+2. Implement the canonical event-sourced state, beneficial-owner ledger and action-transition contract.
+3. Implement true-swap event identity, feed completeness, VWAP OHLCV and volume-attribution diagnostics.
+4. Implement the independent executable reference adapter, competing venue quotes, no-trade option and multi-venue route-choice model.
+5. Implement the R08–R15 metric pipeline: two-sided depth, basis, resilience, adverse markout, fairness, integrity and LP sustainability.
+6. Implement the R16 orchestrator controls and R18 lifecycle state machine; retain hard-gate veto authority.
+7. Calibrate participant behavior, depth elasticity and external LP response on training/validation launches; freeze parameters before held-out evaluation.
+8. Compare baseline and candidate policies on matched seeds and held-out cohorts, then run paper execution and reconciliation.
+
+No live execution is authorized by completion of the research documents.
 
