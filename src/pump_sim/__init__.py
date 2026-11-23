@@ -1,5 +1,88 @@
 """Stochastic agent-based simulator for token-launch market research."""
 
 from .core import SimConfig, SimulationEngine, run_monte_carlo, run_parameter_sweep
+from .market_events import (
+    Attribution,
+    CanonicalMarketEvent,
+    EventKind,
+    EventLedger,
+    Finality,
+    QuoteNotionalBasis,
+)
+from .market_integrity import (
+    DepthObservation,
+    IntegrityConfig,
+    IntegrityFlag,
+    MarketIntegrityAnalyzer,
+    MarketIntegrityMetrics,
+    MarketIntegrityReport,
+    WalletEvidenceKind,
+    WalletLinkEvidence,
+)
+from .market_quality import (
+    MarketQualityObservation,
+    MarketQualityThresholds,
+    ReferenceQuote,
+    build_independent_reference,
+    depth_balance,
+    diagnostic_mqs,
+    evaluate_market_quality,
+    log_basis,
+    measure_recovery_time,
+    trade_markout,
+)
+from .routing import RouteDecision, RouteIntent, VenueQuote, choose_route
+from .orchestrator import (
+    Action,
+    Decision,
+    DecisionContext,
+    DecisionHorizon,
+    HysteresisLatch,
+    LifecycleState,
+    decide,
+)
+from .pumpswap_adapter import PumpSwapPoolState, PumpSwapStateAdapter
 
-__all__ = ["SimConfig", "SimulationEngine", "run_monte_carlo", "run_parameter_sweep"]
+__all__ = [
+    "SimConfig",
+    "SimulationEngine",
+    "run_monte_carlo",
+    "run_parameter_sweep",
+    "PumpSwapPoolState",
+    "PumpSwapStateAdapter",
+    "Attribution",
+    "CanonicalMarketEvent",
+    "EventKind",
+    "EventLedger",
+    "Finality",
+    "QuoteNotionalBasis",
+    "DepthObservation",
+    "IntegrityConfig",
+    "IntegrityFlag",
+    "MarketIntegrityAnalyzer",
+    "MarketIntegrityMetrics",
+    "MarketIntegrityReport",
+    "WalletEvidenceKind",
+    "WalletLinkEvidence",
+    "MarketQualityObservation",
+    "MarketQualityThresholds",
+    "ReferenceQuote",
+    "build_independent_reference",
+    "depth_balance",
+    "diagnostic_mqs",
+    "evaluate_market_quality",
+    "log_basis",
+    "measure_recovery_time",
+    "trade_markout",
+    "RouteDecision",
+    "RouteIntent",
+    "VenueQuote",
+    "choose_route",
+    "Action",
+    "Decision",
+    "DecisionContext",
+    "DecisionHorizon",
+    "HysteresisLatch",
+    "LifecycleState",
+    "decide",
+]

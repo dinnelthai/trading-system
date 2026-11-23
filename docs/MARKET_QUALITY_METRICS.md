@@ -5,7 +5,7 @@
 **Status:** Theoretical specification drafted; empirical calibration and implementation remain open  
 **Scope:** Pump.fun Bonding Curve → graduation → fixed PumpSwap CPMM; genuine independent participation; spot inventory and proportional LP actions  
 **Parent:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
-**Related:** [Pool Microstructure](POOL_MICROSTRUCTURE.md), [Pool Depth Elasticity](DEPTH_ELASTICITY.md), [Dev LP vs Treasury Allocation](DEV_LP_TREASURY_ALLOCATION.md), [Decision Orchestrator](DECISION_ORCHESTRATOR.md), [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md)
+**Related:** [Pool Microstructure](POOL_MICROSTRUCTURE.md), [Pool Depth Elasticity](DEPTH_ELASTICITY.md), [Dev LP vs Treasury Allocation](DEV_LP_TREASURY_ALLOCATION.md), [Decision Orchestrator](DECISION_ORCHESTRATOR.md), [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md), [Market Quality Metrics Engine](MARKET_QUALITY_ENGINE.md), [Canonical Market Event Ledger](MARKET_EVENT_LEDGER.md)
 
 > This document specifies a transparent market-quality and risk-control system. It does not authorize self-trading, wash trading, fabricated volume, artificial candle shaping, deceptive coordination, concealed beneficial ownership, or manipulation of reference prices. Only confirmed genuine swaps are market volume. LP deposits, withdrawals, transfers, failed transactions and feed duplicates are not swaps.
 
@@ -208,7 +208,7 @@ A nonzero basis is not automatically an error: fees, latency, route costs and fi
 
 ### 10.3 Price discovery is not price suppression
 
-The pool must be allowed to move when independent information changes fair value. The target is timely convergence to the current independent reference within executable costs—not reversion to an old price, a preferred price, or a visually smooth trajectory.
+The pool must be allowed to move when independent information changes fair value. The target is timely convergence to the current independent reference within executable costs—not reversion to an old price, a preferred price, or a visually smooth trajectory. The pure reference aggregation and log-basis primitives are implemented in [Market Quality Metrics Engine](MARKET_QUALITY_ENGINE.md); venue ingestion and independence validation remain upstream requirements.
 
 Simple price correlation is insufficient. Measure basis, response delay, executable arbitrage capacity and post-trade markouts together.
 
@@ -256,7 +256,7 @@ T_R=\max(T_b,T_{D,buy},T_{D,sell})
 
 Report the distribution of \(T_R\), not only its mean. Also report maximum basis excursion, minimum depth, failed-order burst, LP withdrawal and the amount of external liquidity replenishment.
 
-Shock classes should come from observed reference jumps, genuine large orders, correlated holder flows, external LP withdrawals and protocol/data outages. Use stochastic or historical shocks, not a hand-authored price path designed to produce a preferred chart.
+Shock classes should come from observed reference jumps, genuine large orders, correlated holder flows, external LP withdrawals and protocol/data outages. Use stochastic or historical shocks, not a hand-authored price path designed to produce a preferred chart. Sustained-window and right-censored recovery measurement is implemented as a pure metric; historical observation adapters and calibrated thresholds remain open.
 
 ---
 
@@ -307,7 +307,7 @@ This is a diagnostic, not a substitute for the exact LP state transition or port
 
 Do not add IL and LVR as if they were independent realized losses. Use actual LP reserve NLV change for the optimizer. Show IL and LVR as separately labeled benchmark diagnostics. The diffusion \(1/8\) variance approximation is a screening baseline; jumps, stale prices, latency, fee tiers and discrete PumpSwap mechanics require event-driven replay.
 
-A high swap volume can be toxic. The allocator must compare LP fees with markout/adverse selection, LVR, inventory risk, costs and capital lock-up—not volume alone.
+A high swap volume can be toxic. The allocator must compare LP fees with markout/adverse selection, LVR, inventory risk, costs and capital lock-up—not volume alone. Trade-side signed markout and fee-adjusted markout primitives are implemented; event-to-reference horizon joins and LVR replay are not.
 
 ---
 
@@ -359,7 +359,7 @@ Treat MEV as a user-execution harm and risk-budget dimension. Record observable 
 
 ### 14.1 Canonical event identity
 
-A confirmed swap event must be uniquely identified by chain, transaction signature, instruction index and event/log index. Handle finality, reorgs, duplicate delivery and parser-version changes explicitly.
+A swap event is uniquely identified by chain, transaction signature, instruction index and event/log index. The implemented [Canonical Market Event Ledger](MARKET_EVENT_LEDGER.md) deduplicates these identities, supports pending → confirmed → finalized progression and orphaning, and rejects conflicting payloads. Its default accepted-volume threshold is FINALIZED; CONFIRMED can be selected explicitly.
 
 A true swap record includes:
 
@@ -385,7 +385,7 @@ Exclude:
 - internal accounting movements;
 - unconfirmed or orphaned events.
 
-True OHLCV is built from confirmed swap executions. Candle price is swap VWAP, not post-swap marginal spot. Buy/sell quote volume and counts are reported separately. The observed feed is a separate projection with explicit delay, drop, duplicate and completeness diagnostics.
+True OHLCV is built from accepted unique swap executions. The event contract requires an explicit quote-notional basis (POOL_GROSS, USER_PAID or USER_RECEIVED); different bases are never mixed. Candle price is execution quote notional divided by base amount, not post-swap marginal spot. Buy/sell quote volume and counts are reported separately. The observed feed is a separate projection with explicit delay, drop, duplicate and completeness diagnostics. Raw transaction decoding, RPC ingestion and decoder-completeness proof remain open.
 
 ### 14.3 Beneficial-owner attribution
 
@@ -400,7 +400,15 @@ Do not silently classify unknown wallets as independent. Only the verified indep
 
 ### 14.4 Anomaly detection
 
-Monitor patterns including repeated reciprocal flows among related accounts, circular movement, rapid round trips with little net exposure change, unusually concentrated turnover, repeated common-control participation and volume that is inconsistent with independent holder growth.
+The implemented [Market Integrity Engine](MARKET_INTEGRITY_ENGINE.md) consumes canonical finalized swap events and optional verified wallet-link evidence and depth/reference observations. It reports:
+- rapid same-wallet two-way turnover, measured against net base-inventory change rather than quote notional alone;
+- substantial two-way turnover among wallets joined by verified disclosed-control or shared-authority evidence;
+- synchronized bursts among verified related wallets;
+- top-wallet concentration and wallet-volume HHI;
+- sell notional relative to a recent executable sell-depth benchmark;
+- pool/reference basis divergence when the independent reference is explicitly valid.
+
+Shared funders, fee payers, common withdrawal destinations, timing correlations and similar amount patterns are weak evidence. They are retained as informational review signals and never merge beneficial-owner clusters. The engine reports linked-owner volume separately and does not silently rewrite the event's attribution label.
 
 These are risk signals, not conclusive proof. Preserve evidence, confidence, false-positive review and appeal/audit records. Do not build a wallet-splitting or detection-evasion playbook.
 
@@ -549,7 +557,7 @@ Maintain separate stochastic populations for:
 - project Treasury and disclosed insiders;
 - generic adverse-execution / MEV-risk stress actors.
 
-Each population has distributions, not a single deterministic persona.
+Each population has distributions, not a single deterministic persona. A pure [Multi-Venue Route Selector](ROUTE_SELECTION.md) now evaluates supplied venue quotes against an independent reference, including depth, freshness, latency, settlement probability and a no-trade option. Route-choice response remains uncalibrated until observed intent/route/fill data is available. The [Market Integrity Engine](MARKET_INTEGRITY_ENGINE.md) now evaluates canonical event tapes and verified beneficial-owner evidence without inferring intent from weak wallet correlations.
 
 ### 17.2 Behavioral state
 
@@ -561,7 +569,7 @@ latency_i,slippage_i,risk_i,horizon_i,
 signal_i,routeSensitivity_i)
 \]
 
-Use empirically calibrated heavy-tailed capital and order-size distributions, asynchronous arrivals, finite inventory, heterogeneous slippage tolerance and correlated information shocks. A participant's order must be constrained by its available Token/quote balance.
+Use empirically calibrated heavy-tailed capital and order-size distributions, asynchronous arrivals, finite inventory, heterogeneous slippage tolerance and correlated information shocks. A participant's order must be constrained by its available Token/quote balance. The simulator now includes a configurable independent-informed-trader population whose noisy fundamental estimate has lower social sensitivity than the discretionary retail signal; it remains a stylized prior until calibrated against labeled historical behavior.
 
 KOL attention is an information/attention process, not a guaranteed buy order. Arbitrage requires an executable post-fee edge and finite external capacity. LP providers respond to fee opportunity, adverse selection, lock-up and withdrawal risk.
 
@@ -683,6 +691,8 @@ No live execution is authorized by this specification.
 ## Final Research Closure
 
 The mathematical research sequence R08–R19 is now specified. This closes the current theory backlog at the specification level, not the implementation or empirical-validation backlog.
+
+The pure route-choice and risk-arbitration primitives are implemented in [Route Selection](ROUTE_SELECTION.md) and [Decision Orchestrator](DECISION_ORCHESTRATOR.md). They consume supplied data and return recommendations only; no live execution is present.
 
 The remaining unknowns are empirical and protocol-specific:
 

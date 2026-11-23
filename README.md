@@ -10,12 +10,25 @@ The long-term product direction is a complete **Market Making & Market Quality S
 
 This is a target-system specification, not a claim that all engines are implemented. The current repository remains a research and stress-testing simulator; live execution is outside its current scope.
 
+The version-aware PumpSwap decoded-state normalization is documented in [PumpSwap State Adapter](docs/PUMPSWAP_ADAPTER.md). It preserves signed `virtual_quote_reserves`, excludes unclaimed v2 protocol/creator fees from effective pricing reserves, and models fee sweeps as reserve-neutral. This adapter is intentionally not a raw Borsh decoder or live transaction client.
+
+The [Canonical Market Event Ledger](docs/MARKET_EVENT_LEDGER.md) adds idempotent event identity, finality-aware deduplication, true-swap volume attribution and execution-derived candles. It consumes normalized decoded events; raw Solana decoding and ingestion are still separate work.
+
+The [Market Quality Metrics Engine](docs/MARKET_QUALITY_ENGINE.md) adds independent-reference aggregation, two-sided depth balance, log basis, LP markout, sustained shock recovery, hard gates and an optional diagnostic MQS. It consumes supplied venue observations and calibrated thresholds; it does not fetch market data or execute strategy actions.
+
+The [Multi-Venue Route Selector](docs/ROUTE_SELECTION.md) compares supplied executable quotes against an independent reference, accounts for quote freshness, depth, latency and settlement probability, and retains a NO_TRADE option. It is a route-choice model only; it does not submit swaps.
+
+The [Market Integrity Engine](docs/MARKET_INTEGRITY_ENGINE.md) adds conservative diagnostics for rapid wallet round trips, verified related-owner turnover, synchronized bursts, wallet concentration, buy/sell flow versus executable depth and pool/reference divergence. Weak wallet correlations never merge ownership clusters, and anomaly flags never rewrite canonical volume attribution. `SimulationEngine.summary()` now includes a `market_integrity` projection using the same canonical event contract; simulated Dev activity and independent agents are labeled from simulator ground truth, not inferred from real wallet patterns.
+
+The [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md) now has an executable safety-arbitration subset: integrity/data/accounting gates, risk-prioritized ADD/REMOVE/HOLD/PAUSE/RECONCILE/OBSERVE decisions and time-persistent hysteresis. Proposal bundling, canonical state-version checks, pre-trade simulation and paper execution remain open.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
 - **Early snipers:** fast launch participation, heterogeneous holding horizons, and probabilistic migration exits.
 - **KOLs:** stochastic posts with individual credibility; posts affect attention and sentiment with noise and decay.
 - **Arbitrageurs:** trade a finite-inventory external reference venue against the local market, accounting for external fees and depth.
+- **Independent informed traders:** trade on a noisy private estimate of latent project quality with lower social-sensitivity and inventory-aware buy/sell decisions.
 - **Retail:** heterogeneous momentum, social-proof, noise, FOMO, risk aversion, and loss aversion.
 - **Whales:** larger and less frequent orders with different risk thresholds.
 - **LP providers:** acquire inventory, add liquidity when fee opportunity compensates for risk, and withdraw when risk thresholds are breached.

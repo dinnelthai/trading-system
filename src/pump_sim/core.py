@@ -27,6 +27,14 @@ from .curve_math import (
     select_curve_fee_rates,
 )
 from .pool_analytics import candle_comparison_metrics, lp_ownership_metrics, pool_depth_by_price_impact
+from .market_events import (
+    Attribution,
+    CanonicalMarketEvent,
+    EventKind,
+    Finality,
+    QuoteNotionalBasis,
+)
+from .market_integrity import IntegrityConfig, MarketIntegrityAnalyzer
 
 
 EPS = 1e-12
@@ -82,6 +90,7 @@ class SimConfig:
     n_snipers: int = 12
     n_kols: int = 3
     n_arbitrageurs: int = 4
+    n_informed_traders: int = 8
     n_retail: int = 60
     n_whales: int = 5
     n_lp_providers: int = 8
@@ -114,8 +123,8 @@ class SimConfig:
                        self.mev_max_risk_bps)
         if any(value < 0 for value in nonnegative):
             raise ValueError("supply, budget, latency, and risk parameters must be nonnegative")
-        counts = (self.n_snipers, self.n_kols, self.n_arbitrageurs, self.n_retail, self.n_whales,
-                  self.n_lp_providers, self.n_mev_risk_agents)
+        counts = (self.n_snipers, self.n_kols, self.n_arbitrageurs, self.n_informed_traders,
+                  self.n_retail, self.n_whales, self.n_lp_providers, self.n_mev_risk_agents)
         if any(value < 0 for value in counts):
             raise ValueError("agent population counts must be nonnegative")
         if not 0 <= self.external_fee_bps < 10_000:
@@ -189,6 +198,7 @@ class Traits:
             "retail": (0.012, 0.10, 0.9, 1.5, 0.95, 0.07, 0.42, 900, 0.75, 1.2, 2.1, 1400),
             "whale": (0.004, 0.08, 0.55, 0.45, 0.65, 0.12, 0.72, 1800, 1.1, 1.8, 2.4, 600),
             "arbitrageur": (0.025, 0.08, 0.2, 0.1, 0.25, 0.14, 0.08, 45, 0.08, 0.1, 1.0, 250),
+            "informed_trader": (0.008, 0.08, 0.25, 0.12, 0.20, 0.14, 0.18, 600, 0.25, 0.5, 1.5, 350),
             "lp_provider": (0.002, 0.09, 0.2, 0.25, 0.35, 0.18, 0.65, 3600, 1.5, 0.5, 1.6, 500),
             "kol": (0.0015, 0.12, 0.7, 1.7, 0.8, 0.0, 0.0, 1200, 2.0, 0.7, 1.5, 0),
             "dev": (0.0002, 0.15, 0.0, 0.0, 0.1, 0.0, 0.0, 86400, 2.0, 0.0, 1.0, 0),
@@ -767,6 +777,24 @@ class Agent:
                 return Action("arb_sell_local", amount=min(self.account.quote * 0.5, self.account.quote * self.rng.uniform(0.03, 0.18)))
             return None
 
+        if self.kind == "informed_trader":
+            # A noisy private fundamental estimate is deliberately less
+            # sensitive to social attention than the discretionary retail model.
+            overhang = max(0.0, s.dev_float_share - 0.10)
+            utility = (
+                2.0 * (s.project_quality - 0.5)
+                + 0.25 * self.traits.momentum_sensitivity * s.momentum
+                - self.traits.risk_aversion * s.volatility * 2.0
+                - self.traits.dev_overhang_sensitivity * overhang
+                + self.rng.gauss(0.0, self.traits.signal_noise)
+            )
+            if utility > self.traits.entry_threshold and self.account.quote > 0.1:
+                fraction = self.rng.uniform(0.05, max(0.06, self.traits.order_fraction))
+                return Action("buy", amount=min(self.account.quote, self.account.quote * fraction))
+            if utility < -self.traits.entry_threshold * self.traits.loss_aversion and self.account.tokens > 1.0:
+                return Action("sell", amount=self.account.tokens * self.rng.uniform(0.05, 0.30))
+            return None
+
         utility = self.signal(s)
         if self.kind == "sniper":
             if self.account.tokens <= EPS and s.phase == Phase.CURVE and s.timestamp < 300 and utility > -0.05:
@@ -1027,6 +1055,7 @@ class SimulationEngine:
             ("sniper", c.n_snipers, 2.0, 0.20, 10.0),
             ("kol", c.n_kols, 5.0, 0.50, 20.0),
             ("arbitrageur", c.n_arbitrageurs, 12.0, 2.0, 50.0),
+            ("informed_trader", c.n_informed_traders, 8.0, 0.50, 35.0),
             ("retail", c.n_retail, 0.60, 0.05, 5.0),
             ("whale", c.n_whales, 25.0, 5.0, 120.0),
             ("lp_provider", c.n_lp_providers, 5.0, 0.50, 30.0),
@@ -1582,6 +1611,127 @@ class SimulationEngine:
         self._drain_feed(float("inf"))
         return self.summary()
 
+    def _market_integrity_projection(self) -> Dict[str, object]:
+        """Adapt simulated fills into the same canonical event contract as replay data.
+
+        Simulation agents have explicit synthetic identities, so the fixture
+        attribution is known by construction: Dev is disclosed related activity
+        and all other generated participants are independent agents. This is
+        simulation ground truth, not an inference rule for real wallet data.
+        """
+        events: List[CanonicalMarketEvent] = []
+        for index, trade in enumerate(self.trades):
+            if trade.side in ("buy", "arb_buy_local"):
+                side = "buy"
+            elif trade.side in ("sell", "arb_sell_local"):
+                side = "sell"
+            else:
+                continue
+            base_raw = int(round(trade.token_amount * 1_000_000))
+            quote_raw = int(round(trade.quote_amount * 1_000_000_000))
+            if base_raw <= 0 or quote_raw <= 0:
+                continue
+            events.append(
+                CanonicalMarketEvent(
+                    chain_id="simulation",
+                    signature=f"sim-{self.config.seed}-{index}",
+                    transaction_index=index,
+                    instruction_index=0,
+                    event_index=0,
+                    slot=max(0, int(trade.timestamp / self.config.block_interval_s)),
+                    timestamp=max(0, int(trade.timestamp)),
+                    kind=EventKind.SWAP,
+                    finality=Finality.FINALIZED,
+                    success=True,
+                    program_id="simulated-market",
+                    base_mint="simulated-token",
+                    quote_mint="simulated-quote",
+                    base_decimals=6,
+                    quote_decimals=9,
+                    side=side,
+                    base_amount_raw=base_raw,
+                    quote_amount_raw=quote_raw,
+                    quote_notional_basis=QuoteNotionalBasis.POOL_GROSS,
+                    actor_wallet=trade.actor_id,
+                    attribution=(
+                        Attribution.RELATED_OR_CONTROLLED
+                        if trade.actor_kind == "dev"
+                        else Attribution.VERIFIED_INDEPENDENT
+                    ),
+                    parser_version="simulated-trade-adapter-v1",
+                    source_record_id=f"trade-index-{index}",
+                )
+            )
+        report = MarketIntegrityAnalyzer(IntegrityConfig()).analyze(events)
+        return {
+            "attribution_basis": "simulation_agent_identity_ground_truth",
+            "accepted_swap_count": report.accepted_swap_count,
+            "duplicate_deliveries": report.duplicate_deliveries,
+            "requires_review": report.requires_review,
+            "markets": [
+                {
+                    "base_mint": market.base_mint,
+                    "quote_mint": market.quote_mint,
+                    "quote_notional_basis": market.quote_notional_basis,
+                    "accepted_swap_count": market.accepted_swap_count,
+                    "volume_quote": market.volume_quote,
+                    "unique_wallets": market.unique_wallets,
+                    "unattributed_swap_count": market.unattributed_swap_count,
+                    "unattributed_volume_quote": market.unattributed_volume_quote,
+                    "verified_independent_volume_quote": market.verified_independent_volume_quote,
+                    "unknown_attribution_volume_quote": market.unknown_attribution_volume_quote,
+                    "related_or_controlled_volume_quote": market.related_or_controlled_volume_quote,
+                    "suspected_non_independent_volume_quote": market.suspected_non_independent_volume_quote,
+                    "verified_linked_owner_volume_quote": market.verified_linked_owner_volume_quote,
+                    "verified_linked_owner_wallets": market.verified_linked_owner_wallets,
+                    "top_wallet_volume_share": market.top_wallet_volume_share,
+                    "wallet_volume_hhi": market.wallet_volume_hhi,
+                    "wallet_activity": [
+                        {
+                            "wallet_id": activity.wallet_id,
+                            "trade_count": activity.trade_count,
+                            "buy_volume_quote": activity.buy_volume_quote,
+                            "sell_volume_quote": activity.sell_volume_quote,
+                            "gross_volume_quote": activity.gross_volume_quote,
+                            "buy_base_amount": activity.buy_base_amount,
+                            "sell_base_amount": activity.sell_base_amount,
+                            "gross_base_amount": activity.gross_base_amount,
+                            "net_base_amount": activity.net_base_amount,
+                            "turnover_ratio": activity.turnover_ratio,
+                        }
+                        for activity in market.wallet_activity
+                    ],
+                    "flags": [
+                        {
+                            "code": flag.code,
+                            "severity": flag.severity,
+                            "message": flag.message,
+                            "wallets": list(flag.wallets),
+                            "start_timestamp_s": flag.start_timestamp_s,
+                            "end_timestamp_s": flag.end_timestamp_s,
+                            "metrics": dict(flag.metrics),
+                        }
+                        for flag in market.flags
+                    ],
+                }
+                for market in report.markets
+            ],
+            "flags": [
+                {
+                    "code": flag.code,
+                    "severity": flag.severity,
+                    "message": flag.message,
+                    "wallets": list(flag.wallets),
+                    "start_timestamp_s": flag.start_timestamp_s,
+                    "end_timestamp_s": flag.end_timestamp_s,
+                    "metrics": dict(flag.metrics),
+                }
+                for flag in report.flags
+            ],
+            "owner_cluster_count": report.owner_cluster_count,
+            "weak_link_evidence_count": report.weak_link_evidence_count,
+        }
+
     def summary(self) -> Dict[str, object]:
         price = self.market.price
         outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "lp_unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "lp_token_claim": 0.0, "lp_quote_claim": 0.0, "quote": 0.0})
@@ -1703,6 +1853,7 @@ class SimulationEngine:
         pool_quote_reserve = pool.quote_reserve if pool else 0.0
         pool_spot_price = pool.price if pool else 0.0
         pool_tvl_quote = 2.0 * pool_quote_reserve
+        market_integrity = self._market_integrity_projection()
         return {
             "seed": self.config.seed,
             "phase": self.market.phase.value,
@@ -1733,6 +1884,7 @@ class SimulationEngine:
             "price_return": price / max(self.initial_price, EPS) - 1.0,
             "max_drawdown": self.max_drawdown,
             "trades": len(self.trades),
+            "market_integrity": market_integrity,
             "curve_real_quote_reserve": self.market.curve.real_quote,
             "curve_real_token_reserve": self.market.curve.real_tokens,
             "curve_token_account_balance": self.market.curve.token_account_balance,
