@@ -264,3 +264,29 @@ def test_event_identity_includes_instruction_and_event_indexes():
     ledger.ingest(swap(instruction_index=2, event_index=1))
     assert ledger.summary()["unique_event_count"] == 3
     assert ledger.summary()["accepted_swap_count"] == 3
+
+
+def test_volume_summary_keeps_distinct_base_token_markets_separate():
+    ledger = EventLedger()
+    first = swap(signature="token-a", quote_amount_raw=10)
+    second = replace(swap(signature="token-b", quote_amount_raw=20), base_mint="token-b")
+    ledger.ingest_many([first, second])
+    markets = ledger.summary()["markets"]
+    assert len(markets) == 2
+    assert {row["base_mint"] for row in markets} == {"token-mint", "token-b"}
+
+
+def test_volume_summary_rejects_inconsistent_mint_decimals():
+    ledger = EventLedger()
+    ledger.ingest(swap(signature="normal"))
+    ledger.ingest(replace(swap(signature="bad-decimals"), quote_decimals=6))
+    with pytest.raises(EventConflictError, match="mint decimals changed"):
+        ledger.summary()
+
+
+def test_candle_builder_rejects_inconsistent_mint_decimals():
+    ledger = EventLedger()
+    ledger.ingest(swap(signature="normal"))
+    ledger.ingest(replace(swap(signature="bad-decimals"), base_decimals=9))
+    with pytest.raises(EventConflictError, match="mint decimals changed"):
+        ledger.candles(60)
