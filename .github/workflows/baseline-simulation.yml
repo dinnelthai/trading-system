@@ -1,3 +1,4 @@
+# Includes per-phase gross/net quote flow and relative supply-conservation checks.
 name: baseline-simulation
 
 on:
