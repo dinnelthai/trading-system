@@ -45,13 +45,18 @@ def test_constant_product_pool_accrues_lp_fees_in_reserves():
     assert k2 > k1
 
 
-def test_curve_migrates_after_configured_quote_threshold():
-    config = SimConfig(graduation_quote_reserve=10, curve_virtual_quote_reserve=100)
-    engine = SimulationEngine(config)
-    engine.market.buy(12)
-    assert engine.market.maybe_migrate(12)
+def test_curve_migrates_when_real_token_inventory_is_exhausted_with_continuous_price():
+    engine = SimulationEngine(SimConfig())
+    execution = engine.market.buy(1_000.0)
+    assert execution.amount_out == pytest.approx(793_100_000.0)
+    assert engine.market.curve.real_tokens == pytest.approx(0.0, abs=1e-5)
+    assert engine.market.curve.token_account_balance == pytest.approx(206_900_000.0)
+    assert engine.market.maybe_migrate(12.0)
     assert engine.market.phase.value == "pump_swap_pool"
     assert engine.market.pool is not None
+    assert engine.market.pool.token_reserve == pytest.approx(206_900_000.0)
+    assert engine.market.pool.quote_reserve == pytest.approx(85.0 - 0.015000001)
+    assert abs(engine.market.migration_price_gap_bps) < 2.0
     assert engine.market.initial_lp_locked_shares > 0
 
 
@@ -132,7 +137,7 @@ def test_token_supply_is_conserved_across_curve_pool_and_external_venue():
     config = SimConfig(seed=19, duration_s=600)
     engine = SimulationEngine(config)
     engine.run()
-    market_inventory = engine.market.curve.real_tokens if engine.market.pool is None else engine.market.pool.token_reserve
+    market_inventory = engine.market.curve.token_account_balance if engine.market.pool is None else engine.market.pool.token_reserve
     agent_inventory = sum(a.account.tokens for a in engine.agents)
     total = agent_inventory + market_inventory + engine.market.external_token_reserve + engine.market.locked_supply
     assert math.isclose(total, config.total_supply, rel_tol=1e-9, abs_tol=1e-3)
@@ -142,7 +147,6 @@ def test_post_migration_pool_runs_agents_and_preserves_supply():
     config = SimConfig(
         seed=77,
         duration_s=180,
-        graduation_quote_reserve=1.0,
         n_snipers=4,
         n_kols=1,
         n_arbitrageurs=2,
@@ -152,13 +156,15 @@ def test_post_migration_pool_runs_agents_and_preserves_supply():
         n_mev_risk_agents=1,
     )
     engine = SimulationEngine(config)
-    seed_holder = next(a for a in engine.agents if a.kind == "sniper")
-    seed_buy = engine.market.buy(2.0)
+    seed_holder = next(a for a in engine.agents if a.kind == "whale")
+    seed_holder.account.quote = 1_000.0
+    seed_buy = engine.market.buy(1_000.0)
+    seed_holder.account.quote -= seed_buy.amount_in
     seed_holder.account.tokens += seed_buy.amount_out
     seed_holder.account.avg_entry_price = seed_buy.amount_in / seed_buy.amount_out
     assert engine.market.maybe_migrate(0.0)
     engine._handle_migration()
-    assert engine.dev.account.lp_shares > 0
+    assert engine.market.initial_lp_locked_shares > 0
 
     result = engine.run()
     assert result["phase"] == "pump_swap_pool"
@@ -203,6 +209,8 @@ def test_lp_withdrawal_resets_returned_token_cost_basis_to_withdrawal_price():
 def test_arbitrage_accounts_for_external_venue_fees():
     engine = SimulationEngine(SimConfig(seed=405, duration_s=10))
     arb = next(agent for agent in engine.agents if agent.kind == "arbitrageur")
+    engine.market.pool = ConstantProductPool(1_000_000.0, 1.0, 30.0)
+    engine.market.phase = Phase.POOL
     engine.reference_price = engine.market.price * 1.20
     initial_external_tokens = engine.market.external_token_reserve
 
@@ -218,6 +226,8 @@ def test_dev_vesting_releases_locked_supply_on_public_schedule():
         duration_s=5,
         dev_vesting_start_s=2,
         dev_vesting_interval_s=2,
+        dev_allocation=100_000_000,
+        dev_locked_fraction=1.0,
         dev_vesting_fraction_per_interval=0.10,
         n_snipers=0,
         n_kols=0,
