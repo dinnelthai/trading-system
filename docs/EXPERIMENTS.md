@@ -45,6 +45,8 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 23. **Flow composition elasticity:** report organic, arbitrage and informed-flow volume elasticity separately. Test cases where local pool capacity, external venue depth or arbitrage capital is the binding constraint.
 24. **Demand-versus-capture decomposition:** vary attention/KOL/regime shocks separately from pool depth. Confirm that changes in external intent arrivals are not misattributed to depth elasticity.
 
+25. **External LP supply response:** vary (chi=dE/dK_D) across crowd-in, fixed-supply and crowd-out scenarios. Compare Dev's marginal fee capture, total pool depth, route share, external LP concentration and minimum-depth violations. Do not treat an increase in Dev fee share caused by other LPs withdrawing as a market-quality gain.
+
 ## Stress scenarios
 
 Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve relationships when changing curve parameters; do not tune graduation by changing a quote threshold because Pump completion is based on real-token exhaustion:
