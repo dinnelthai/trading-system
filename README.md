@@ -16,6 +16,8 @@ The [Canonical Market Event Ledger](docs/MARKET_EVENT_LEDGER.md) adds idempotent
 
 The [Market Quality Metrics Engine](docs/MARKET_QUALITY_ENGINE.md) adds independent-reference aggregation, two-sided depth balance, log basis, LP markout, sustained shock recovery, hard gates and an optional diagnostic MQS. It consumes supplied venue observations and calibrated thresholds; it does not fetch market data or execute strategy actions.
 
+The [Multi-Venue Route Selector](docs/ROUTE_SELECTION.md) compares supplied executable quotes against an independent reference, accounts for quote freshness, depth, latency and settlement probability, and retains a NO_TRADE option. It is a route-choice model only; it does not submit swaps.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
