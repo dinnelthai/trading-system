@@ -1104,8 +1104,8 @@ class SimulationEngine:
         heapq.heappush(self.order_queue, (block_time, -priority, self.sequence, agent, action))
 
     def _record_order_execution(self, action: Action, timestamp: float) -> None:
-        self.orders_executed += 1
         if action.arrival_time is not None:
+            self.orders_executed += 1
             latency = max(0.0, timestamp - action.arrival_time)
             self.order_latency_sum_s += latency
             self.order_latency_max_s = max(self.order_latency_max_s, latency)
@@ -1534,7 +1534,7 @@ class SimulationEngine:
             "curve_real_token_reserve": self.market.curve.real_tokens,
             "curve_token_account_balance": self.market.curve.token_account_balance,
             "curve_fee_vault_quote": self.market.curve.fee_vault_quote,
-            "curve_account_quote_balance": self.market.curve.curve_account_quote_balance if hasattr(self.market.curve, "curve_account_quote_balance") else self.market.curve.account_quote_balance,
+            "curve_account_quote_balance": self.market.curve.account_quote_balance,
             "curve_protocol_fees_pending_quote": self.market.curve.protocol_fees_pending,
             "curve_creator_fees_pending_quote": self.market.curve.creator_fees_pending,
             "curve_protocol_fees_paid_quote": self.market.curve.protocol_fees_paid,
