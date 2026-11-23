@@ -616,6 +616,7 @@ class MarketIntegrityAnalyzer:
                             metrics=(("sell_volume_quote", sell_volume), ("sell_depth_quote", depth.sell_depth_quote), ("pressure_multiple", pressure)),
                         )
                     )
+        for depth in ordered_observations:
             if depth.reference_valid and depth.pool_price is not None and depth.reference_price is not None:
                 basis_bps = abs(math.log(depth.pool_price / depth.reference_price)) * 10_000.0
                 if basis_bps >= self.config.max_abs_basis_bps:
