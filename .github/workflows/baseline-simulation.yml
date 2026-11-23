@@ -1,0 +1,66 @@
+name: baseline-simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of independent market paths
+        required: true
+        default: "500"
+        type: number
+      duration_s:
+        description: Simulated seconds per market path
+        required: true
+        default: "1800"
+        type: number
+      seed:
+        description: First random seed
+        required: true
+        default: "20261123"
+        type: number
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install simulator
+        run: python -m pip install -e .
+      - name: Run independent market paths
+        run: |
+          mkdir -p results
+          python -m pump_sim \
+            --config configs/default.json \
+            --seed "\${{ inputs.seed }}" \
+            --duration "\${{ inputs.duration_s }}" \
+            --runs "\${{ inputs.runs }}" \
+            --csv-out results/baseline-runs.csv \
+            --summary-only \
+            --out results/baseline-summary.json
+      - name: Validate baseline output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("results/baseline-summary.json").read_text())
+          assert summary["runs"] > 0
+          assert 0 <= summary["graduation_rate"] <= 1
+          assert abs(summary["metrics"]["token_supply_accounting_error"]["mean"]) < 1e-3
+          assert summary["metrics"]["trades"]["mean"] >= 0
+          print("runs:", summary["runs"])
+          print("graduation rate:", summary["graduation_rate"])
+          print("mean drawdown:", summary["metrics"]["max_drawdown"]["mean"])
+          print("mean trades:", summary["metrics"]["trades"]["mean"])
+          print("mean quote volume:", summary["metrics"]["true_volume_quote"]["mean"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseline-simulation-results
+          path: results/
+          if-no-files-found: error
+          retention-days: 30
