@@ -583,7 +583,13 @@ class SimulationEngine:
         self.observed_candles = CandleBuilder(self.config.candle_interval_s)
         self.feed_queue: List[Tuple[float, int, float, float]] = []
         self.order_queue: List[Tuple[float, float, int, Agent, Action]] = []
+        self.activation_queue: List[Tuple[float, int, Agent]] = []
+        self.recent_trade_window: Deque[Tuple[float, float]] = deque()
+        self.recent_volume_quote = 0.0
         self.sequence = 0
+        for agent in self.agents:
+            if agent.kind != "mev_risk":
+                self._schedule_activation(agent, 0.0)
         self.feed_dropped = 0
         self.feed_duplicates = 0
         self.total_volume_quote = 0.0
@@ -669,7 +675,10 @@ class SimulationEngine:
         top_holder = max(holder_tokens, default=0.0) / circulating
         dev_float = dev_tokens / circulating
         progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
-        recent_volume = sum(t.quote_amount for t in self.trades if timestamp - 60 <= t.timestamp <= timestamp)
+        while self.recent_trade_window and self.recent_trade_window[0][0] < timestamp - 60.0:
+            _, expired_volume = self.recent_trade_window.popleft()
+            self.recent_volume_quote = max(0.0, self.recent_volume_quote - expired_volume)
+        recent_volume = self.recent_volume_quote
         pool_age = max(0.0, timestamp - self.market.graduated_at) if self.market.graduated_at is not None else 0.0
         return Snapshot(
             timestamp, self.market.phase, pool_age, self.project_quality, price, self.reference_price, momentum, volatility,
@@ -685,6 +694,12 @@ class SimulationEngine:
         priority = agent.rng.random()
         self.sequence += 1
         heapq.heappush(self.order_queue, (block_time, -priority, self.sequence, agent, action))
+
+    def _schedule_activation(self, agent: Agent, now: float) -> None:
+        rate = max(agent.traits.activity_rate, 1e-9)
+        next_activation = now + agent.rng.expovariate(rate)
+        self.sequence += 1
+        heapq.heappush(self.activation_queue, (next_activation, self.sequence, agent))
 
     def _mev_exposure(self, quote_notional: float, depth_quote: float) -> float:
         if quote_notional <= 0 or not self.mev_agents:
@@ -703,6 +718,8 @@ class SimulationEngine:
     def _record_trade(self, trade: Trade) -> None:
         self.trades.append(trade)
         self.total_volume_quote += trade.quote_amount
+        self.recent_trade_window.append((trade.timestamp, trade.quote_amount))
+        self.recent_volume_quote += trade.quote_amount
         self.total_fees_quote += trade.fee_quote
         self.total_mev_risk_cost += trade.mev_risk_cost_quote
         self.true_candles.update(trade.timestamp, trade.price, trade.quote_amount)
@@ -867,28 +884,42 @@ class SimulationEngine:
             self._handle_migration()
 
     def run(self) -> Dict[str, object]:
-        steps = int(self.config.duration_s / self.config.step_s)
+        steps = int(math.ceil(self.config.duration_s / self.config.step_s))
         for i in range(steps):
             now = i * self.config.step_s
+            settle_until = min(float(self.config.duration_s), now + self.config.step_s)
+            dt = settle_until - now
+            if dt <= 0:
+                break
             self.time = now
-            self._transition_regime(self.config.step_s)
+            self._transition_regime(dt)
             self._process_dev_vesting(now)
             self._drain_feed(now)
-            snapshot = self._snapshot(now)
 
-            for agent in self.agents:
-                if agent.kind == "mev_risk":
-                    continue
-                activation = 1.0 - math.exp(-agent.traits.activity_rate * self.config.step_s)
-                if agent.rng.random() < activation:
+            # Process participant activations and block settlements in timestamp order.
+            # Agents wake asynchronously; no single market-wide decision tick is imposed.
+            while True:
+                next_activation = self.activation_queue[0][0] if self.activation_queue else float("inf")
+                next_order = self.order_queue[0][0] if self.order_queue else float("inf")
+                next_event = min(next_activation, next_order)
+                if next_event > settle_until:
+                    break
+                process_order = next_order < next_activation
+                if next_order == next_activation and next_order <= settle_until:
+                    process_order = self.rng.random() < 0.5
+                self._drain_feed(next_event)
+                if process_order:
+                    block_time, _, _, agent, action = heapq.heappop(self.order_queue)
+                    self._execute(agent, action, block_time)
+                else:
+                    activation_time, _, agent = heapq.heappop(self.activation_queue)
+                    snapshot = self._snapshot(activation_time)
                     action = agent.decide(snapshot)
                     if action is not None:
-                        self._schedule(agent, action, now)
+                        self._schedule(agent, action, activation_time)
+                    self._schedule_activation(agent, activation_time)
 
-            settle_until = now + self.config.step_s
-            while self.order_queue and self.order_queue[0][0] <= settle_until:
-                block_time, _, _, agent, action = heapq.heappop(self.order_queue)
-                self._execute(agent, action, block_time)
+            self._drain_feed(settle_until)
             if self.market.maybe_migrate(settle_until):
                 self._handle_migration()
 
@@ -1043,11 +1074,37 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
             "median": quantile(xs, 0.50),
             "p90": quantile(xs, 0.90),
         }
+    graduated_results = [r for r in results if r["graduated"] and isinstance(r.get("graduated_at_s"), (int, float))]
+    metrics["graduation_time_s"] = {
+        "mean": statistics_mean([float(r["graduated_at_s"]) for r in graduated_results]),
+        "p10": quantile([float(r["graduated_at_s"]) for r in graduated_results], 0.10),
+        "median": quantile([float(r["graduated_at_s"]) for r in graduated_results], 0.50),
+        "p90": quantile([float(r["graduated_at_s"]) for r in graduated_results], 0.90),
+        "sample_size": len(graduated_results),
+    }
+    participant_metrics: Dict[str, Dict[str, object]] = {}
+    participant_kinds = sorted({kind for result in results for kind in result.get("participants", {})})
+    for kind in participant_kinds:
+        participant_metrics[kind] = {}
+        for field_name in ("realized_pnl", "unrealized_pnl", "lp_unrealized_pnl", "fees_paid", "tokens", "lp_token_claim", "lp_quote_claim", "quote"):
+            samples = [float(result.get("participants", {}).get(kind, {}).get(field_name, 0.0)) for result in results]
+            participant_metrics[kind][field_name] = {
+                "mean": statistics_mean(samples),
+                "p10": quantile(samples, 0.10),
+                "median": quantile(samples, 0.50),
+                "p90": quantile(samples, 0.90),
+            }
+    graduated_count = len(graduated_results)
     return {
         "runs": runs,
         "seed_start": config.seed,
-        "graduation_rate": sum(1 for r in results if r["graduated"]) / runs,
+        "seed_end": config.seed + runs - 1,
+        "graduated_runs": graduated_count,
+        "not_graduated_runs": runs - graduated_count,
+        "graduation_rate": graduated_count / runs,
+        "graduation_rate_standard_error": math.sqrt((graduated_count / runs) * (1.0 - graduated_count / runs) / runs),
         "metrics": metrics,
+        "participant_metrics": participant_metrics,
         "run_results": results,
     }
 
