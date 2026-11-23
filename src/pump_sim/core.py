@@ -777,7 +777,9 @@ class SimulationEngine:
                 if expected_proceeds <= self.market.external_quote_reserve + EPS:
                     break
                 quote_in *= 0.5
-            if quote_in > EPS and expected_proceeds > quote_in + EPS:
+            expected_tokens = self.market.preview_buy(quote_in)
+            expected_proceeds = expected_tokens * self.reference_price * (1.0 - external_fee_rate)
+            if quote_in > EPS and expected_proceeds <= self.market.external_quote_reserve + EPS and expected_proceeds > quote_in + EPS:
                 execution = self.market.buy(quote_in)
                 if execution.amount_out > EPS:
                     external_gross = execution.amount_out * self.reference_price
