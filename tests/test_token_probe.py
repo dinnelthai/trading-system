@@ -118,18 +118,24 @@ def test_probe_collects_mint_program_supply_and_slot_window(monkeypatch):
         if method == "getAccountInfo":
             address = params[0]
             if address == MINT:
-                return {"result": {"value": {
-                    "owner": TOKEN_2022_PROGRAM,
+                return {"result": {
+                    "context": {"slot": 123},
+                    "value": {
+                        "owner": TOKEN_2022_PROGRAM,
+                        "lamports": 1_000_000,
+                        "rentEpoch": 1,
+                        "data": [mint_data(extension=(14, b"hook")), "base64"],
+                    },
+                }}
+            return {"result": {
+                "context": {"slot": 123},
+                "value": {
+                    "owner": TOKEN_PROGRAM,
                     "lamports": 1_000_000,
                     "rentEpoch": 1,
-                    "data": [mint_data(extension=(14, b"hook")), "base64"],
-                }}}
-            return {"result": {"value": {
-                "owner": TOKEN_PROGRAM,
-                "lamports": 1_000_000,
-                "rentEpoch": 1,
-                "data": [mint_data(decimals=9), "base64"],
-            }}}
+                    "data": [mint_data(decimals=9), "base64"],
+                },
+            }}
         if method == "getTokenSupply":
             address = params[0]
             decimals = 6 if address == MINT else 9
@@ -153,6 +159,8 @@ def test_probe_collects_mint_program_supply_and_slot_window(monkeypatch):
     )
 
     assert summary["mint_account"]["token_program"] == "Token-2022"
+    assert summary["mint_account"]["context_slot"] == 123
+    assert summary["mint_account"]["snapshot_id"].startswith(f"{MINT}:123:")
     assert summary["mint_account"]["extensions"][0]["name"] == "TransferHook"
     assert summary["mint_supply"]["decimals"] == 6
     assert summary["quote_mint_account"]["token_program"] == "Token Program"
@@ -174,3 +182,28 @@ def test_probe_rejects_non_token_program_owner(monkeypatch):
     monkeypatch.setattr(probe, "rpc_call", fake_rpc)
     with pytest.raises(ValueError, match="not a supported token program"):
         probe.probe_token("https://rpc.invalid", MINT)
+
+
+def test_parse_166_byte_token_2022_mint_with_account_type_but_no_extensions():
+    raw = bytearray(166)
+    raw[44] = 6
+    raw[45] = 1
+    raw[165] = 1
+    parsed = probe.parse_mint_account_data(
+        base64.b64encode(bytes(raw)).decode(),
+        TOKEN_2022_PROGRAM,
+    )
+    assert parsed["extension_parse_status"] == "no_extension_tlv"
+
+
+def test_extension_enum_tracks_current_permissioned_burn_and_scaled_ui_ids():
+    permissioned = probe.parse_mint_account_data(
+        mint_data(extension=(28, b"permissioned-burn")),
+        TOKEN_2022_PROGRAM,
+    )
+    scaled = probe.parse_mint_account_data(
+        mint_data(extension=(25, b"scaled-ui")),
+        TOKEN_2022_PROGRAM,
+    )
+    assert permissioned["extensions"][0]["name"] == "PermissionedBurn"
+    assert scaled["extensions"][0]["name"] == "ScaledUiAmountConfig"
