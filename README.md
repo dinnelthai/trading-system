@@ -103,4 +103,8 @@ For deterministic event replay, normalize swaps, liquidity changes, migration, a
 
     pump-replay --input data/normalized_events.jsonl --out results/replay.json
 
+Smoke-test the installed command with the synthetic fixture:
+
+    pump-replay --input examples/normalized_events.synthetic.jsonl --out results/example_replay.json
+
 The replay checks event ordering, reserve continuity, LP position continuity, and snapshot drift. It validates only the supplied normalized event stream; it does not certify archive completeness or decode raw Solana instructions. Neither command overwrites the synthetic default configuration.
