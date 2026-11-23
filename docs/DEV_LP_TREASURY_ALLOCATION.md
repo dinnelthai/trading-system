@@ -361,6 +361,56 @@ At 0.200%, the simplified optimum is about 17.98 SOL. If the alternative allocat
 
 These values are analytical examples under constant fee tier, constant volume, fixed external LP capital and diffusion-only LVR. They are not a live sizing recommendation.
 
+### 7.3 Generalization when external LP capital responds
+
+The closed-form \(K_D^*\) above assumes external LP capital \(E\) remains fixed. In a live market, external LP providers may add or withdraw when Dev changes its position or when pool economics change.
+
+Let:
+
+\[
+\chi=\frac{dE}{dK_D},\qquad T=K_D+E,\qquad \alpha=\frac{K_D}{T}
+\]
+
+Using the depth elasticity \(\epsilon_V=d\ln V/d\ln T\), the marginal Dev fee capture becomes:
+
+\[
+\boxed{
+\frac{dF_D}{dK_D}
+=f_L\frac VT
+\left[
+(1-\alpha)+\alpha\epsilon_V
++\alpha\chi(\epsilon_V-1)
+\right]
+}
+\]
+
+The corresponding first-order LP excess-value screen is:
+
+\[
+\boxed{
+M_{LP}=f_L\tau
+\left[
+(1-\alpha)+\alpha\epsilon_V
++\alpha\chi(\epsilon_V-1)
+\right]
+-\frac{\sigma_d^2}{8}-c_d-r_{alt}
+}
+\]
+
+The fixed-external-capital formula is recovered when \(\chi=0\). Do not use the fixed-\(E\) closed-form optimum when external LP supply materially responds; solve the coupled state transition numerically.
+
+**Illustration:** with \(T=100\) SOL, \(K_D=20\) SOL, \(E=80\) SOL, \(V=300\) SOL/day, \(f_L=0.200\%\), \(\sigma_d=20\%\), and an assumed \(\epsilon_V=0.712\), the marginal fee capture is approximately 0.565% of incremental Dev LP capital per day, versus a 0.500% diffusion-LVR baseline, before other costs. If \(\epsilon_V=0\), marginal fee capture falls to 0.480%, below the LVR baseline. The assumed 0.712 is the illustrative logit result in [Pool Depth Elasticity](DEPTH_ELASTICITY.md), not an empirical PumpSwap estimate.
+
+The external LP response changes the marginal fee capture further:
+
+| External LP response \(\chi\) | Marginal fee capture | Excess over 0.500% LVR |
+|---:|---:|---:|
+| -0.5 | 0.583% | +0.083% |
+| 0 | 0.565% | +0.065% |
+| +0.5 | 0.548% | +0.048% |
+
+A negative \(\chi\) can increase Dev's fee share because external LPs withdraw, while simultaneously limiting the increase in total pool depth. This is not automatically desirable: the Orchestrator must independently enforce minimum depth and market-quality constraints.
+
 ## 8. Portfolio-level capital allocation
 
 Let \(B\) be the investable quote-equivalent capital budget, excluding restricted/locked assets and separately valued receivables. Define:
