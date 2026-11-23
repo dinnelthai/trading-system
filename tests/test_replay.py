@@ -30,6 +30,10 @@ def event(
     owner="",
     position="",
     actor="",
+    quote_vault_before=None,
+    quote_vault_after=None,
+    virtual_quote_before=None,
+    virtual_quote_after=None,
 ):
     return {
         "schema_version": "1.0",
@@ -58,6 +62,10 @@ def event(
         "token_amount_raw": token_amount_raw,
         "quote_amount_raw": quote_amount_raw,
         "fee_quote_raw": fee_quote_raw,
+        "pool_quote_vault_before_raw": quote_vault_before,
+        "pool_quote_vault_after_raw": quote_vault_after,
+        "pool_virtual_quote_reserve_before_raw": virtual_quote_before,
+        "pool_virtual_quote_reserve_after_raw": virtual_quote_after,
         "base_reserve_before_raw": base_before,
         "quote_reserve_before_raw": quote_before,
         "base_reserve_after_raw": base_after,
@@ -287,3 +295,144 @@ def test_normalizer_filters_multi_token_archive_only_when_mint_is_supplied():
     filtered = normalize_events([first, second], token_address=TOKEN)
     assert len(filtered) == 1
     assert filtered[0].token_address == TOKEN
+
+
+def test_replay_preserves_v3_synthetic_migration_event_order_and_signed_pool_reserves():
+    curve_trade = event(
+        "curve-trade-event",
+        "curve_swap",
+        tx=0,
+        ix=0,
+        event_index=0,
+        side="buy",
+        token_amount_raw=90_909_091,
+        quote_amount_raw=10_000_000_000,
+        base_before=1_000_000_000,
+        quote_before=100_000_000_000,
+        base_after=909_090_909,
+        quote_after=110_000_000_000,
+        actor="buyer",
+    )
+    complete = event(
+        "complete-event",
+        "curve_complete",
+        tx=0,
+        ix=0,
+        event_index=1,
+    )
+    post_complete = event(
+        "post-complete-buy-event",
+        "post_complete_buy",
+        tx=0,
+        ix=0,
+        event_index=2,
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=59_090_909,
+        quote_amount_raw=10_000_000_000,
+        base_before=909_090_909,
+        quote_before=110_000_000_000,
+        base_after=850_000_000,
+        quote_after=120_000_000_000,
+        actor="buyer",
+    )
+    migration = event(
+        "migration-event",
+        "migration",
+        tx=1,
+        ix=0,
+        domain="pump_swap_pool",
+        base_before=850_000_000,
+        quote_before=120_000_000_000,
+        base_after=850_000_000,
+        quote_after=120_000_000_000,
+    )
+    pool_trade = event(
+        "pump-swap-v2-buy",
+        "pool_swap",
+        tx=2,
+        ix=1,
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=50_000_000,
+        quote_amount_raw=10_000_000_000,
+        fee_quote_raw=25_000_000,
+        base_before=850_000_000,
+        quote_before=120_000_000_000,
+        base_after=800_000_000,
+        quote_after=130_000_000_000,
+        actor="buyer-2",
+        quote_vault_before=130_000_000_000,
+        virtual_quote_before=-10_000_000_000,
+        quote_vault_after=139_000_000_000,
+        virtual_quote_after=-9_000_000_000,
+    )
+    snapshot = event(
+        "pool-state-snapshot",
+        "state_snapshot",
+        tx=3,
+        domain="pump_swap_pool",
+        base_after=800_000_000,
+        quote_after=130_000_000_000,
+    )
+
+    ordered = normalize_events([snapshot, migration, pool_trade, post_complete, complete, curve_trade])
+    assert [item.event_id for item in ordered[:3]] == [
+        "curve-trade-event", "complete-event", "post-complete-buy-event"
+    ]
+    report = replay_events(ordered)
+
+    assert report["replay_status"] == "consistent"
+    assert report["curve_complete_count"] == 1
+    assert report["migration_count"] == 1
+    assert report["event_counts"]["post_complete_buy"] == 1
+    assert report["market"]["swap_events"] == 3
+    assert report["market"]["swap_calibration"]["sample"]["trades"] == 3
+    assert report["reserve_continuity"]["mismatch_count"] == 0
+
+
+def test_signed_virtual_quote_reserves_must_reconcile_to_effective_quote_reserves():
+    valid = event(
+        "negative-virtual-quote",
+        "pool_swap",
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=100,
+        quote_before=90,
+        base_after=90,
+        quote_after=100,
+        actor="wallet-a",
+        quote_vault_before=100,
+        virtual_quote_before=-10,
+        quote_vault_after=110,
+        virtual_quote_after=-10,
+    )
+    assert normalize_events([valid])[0].pool_virtual_quote_reserve_before_raw == -10
+
+    invalid = dict(valid, event_id="bad-effective-quote", quote_reserve_before_raw=100)
+    with pytest.raises(ValueError, match="quote_reserve_before_raw must equal"):
+        normalize_events([invalid])
+
+
+def test_replay_flags_post_complete_buy_without_a_curve_complete_marker():
+    post_complete = event(
+        "orphan-post-complete-buy",
+        "post_complete_buy",
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=100,
+        quote_before=100,
+        base_after=90,
+        quote_after=110,
+        actor="wallet-a",
+    )
+    report = replay_events(normalize_events([post_complete]))
+    assert report["replay_status"] == "discrepancies"
+    assert any(
+        item["kind"] == "post_complete_buy_without_complete_marker"
+        for item in report["reserve_continuity"]["mismatches"]
+    )
