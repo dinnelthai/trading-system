@@ -21,6 +21,11 @@ def _finite_nonnegative(name: str, value: float) -> float:
         raise ValueError(f"{name} must be finite and nonnegative")
     return number
 
+def _small_int(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a nonnegative integer")
+    return value
+
 
 @dataclass(frozen=True, slots=True)
 class ReferenceQuote:
@@ -38,10 +43,14 @@ class ReferenceQuote:
             raise ValueError("timestamp_s must be a nonnegative integer")
         bid = float(self.bid_price)
         ask = float(self.ask_price)
+        bid_depth = _finite_nonnegative("bid_depth_quote", self.bid_depth_quote)
+        ask_depth = _finite_nonnegative("ask_depth_quote", self.ask_depth_quote)
         if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask < bid:
             raise ValueError("reference bid/ask prices must be finite, positive and non-crossed")
-        _finite_nonnegative("bid_depth_quote", self.bid_depth_quote)
-        _finite_nonnegative("ask_depth_quote", self.ask_depth_quote)
+        object.__setattr__(self, "bid_price", bid)
+        object.__setattr__(self, "ask_price", ask)
+        object.__setattr__(self, "bid_depth_quote", bid_depth)
+        object.__setattr__(self, "ask_depth_quote", ask_depth)
 
     @property
     def mid_price(self) -> float:
@@ -245,10 +254,13 @@ class RecoveryObservation:
     def __post_init__(self) -> None:
         if isinstance(self.timestamp_s, bool) or not isinstance(self.timestamp_s, int) or self.timestamp_s < 0:
             raise ValueError("timestamp_s must be a nonnegative integer")
-        if self.basis is not None and not math.isfinite(float(self.basis)):
-            raise ValueError("basis must be finite or None")
-        _finite_nonnegative("buy_depth_quote", self.buy_depth_quote)
-        _finite_nonnegative("sell_depth_quote", self.sell_depth_quote)
+        if self.basis is not None:
+            basis = float(self.basis)
+            if not math.isfinite(basis):
+                raise ValueError("basis must be finite or None")
+            object.__setattr__(self, "basis", basis)
+        object.__setattr__(self, "buy_depth_quote", _finite_nonnegative("buy_depth_quote", self.buy_depth_quote))
+        object.__setattr__(self, "sell_depth_quote", _finite_nonnegative("sell_depth_quote", self.sell_depth_quote))
         if not isinstance(self.reference_valid, bool):
             raise TypeError("reference_valid must be bool")
 
@@ -307,12 +319,14 @@ def measure_recovery_time(
         if not healthy(candidate):
             continue
         target_time = candidate.timestamp_s + persistence_s
-        window = [
-            item for item in ordered[index:]
-            if item.timestamp_s <= target_time
-        ]
-        if not window or window[-1].timestamp_s < target_time:
+        tail = ordered[index:]
+        end_index = next(
+            (offset for offset, item in enumerate(tail) if item.timestamp_s >= target_time),
+            None,
+        )
+        if end_index is None:
             continue
+        window = tail[: end_index + 1]
         if not all(healthy(item) for item in window):
             continue
         if any(
@@ -347,10 +361,11 @@ class MarketQualityThresholds:
             "max_execution_cost_p95_bps", "max_abs_basis_p95_bps",
             "max_recovery_time_p95_s",
         ):
-            _finite_nonnegative(name, getattr(self, name))
+            object.__setattr__(self, name, _finite_nonnegative(name, getattr(self, name)))
         completeness = float(self.min_data_completeness)
         if not math.isfinite(completeness) or not 0 <= completeness <= 1:
             raise ValueError("min_data_completeness must be in [0, 1]")
+        object.__setattr__(self, "min_data_completeness", completeness)
         _small_int("max_integrity_violations", self.max_integrity_violations)
 
 
@@ -363,6 +378,21 @@ class MarketQualityObservation:
     recovery_time_p95_s: Optional[float]
     data_completeness: Optional[float]
     integrity_violations: int = 0
+
+    def __post_init__(self) -> None:
+        for name in (
+            "buy_depth_quote", "sell_depth_quote", "execution_cost_p95_bps",
+            "abs_basis_p95_bps", "recovery_time_p95_s",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _finite_nonnegative(name, value))
+        if self.data_completeness is not None:
+            completeness = float(self.data_completeness)
+            if not math.isfinite(completeness) or not 0 <= completeness <= 1:
+                raise ValueError("data_completeness must be in [0, 1]")
+            object.__setattr__(self, "data_completeness", completeness)
+        _small_int("integrity_violations", self.integrity_violations)
 
 
 @dataclass(frozen=True, slots=True)
