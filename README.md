@@ -18,6 +18,8 @@ The [Market Quality Metrics Engine](docs/MARKET_QUALITY_ENGINE.md) adds independ
 
 The [Multi-Venue Route Selector](docs/ROUTE_SELECTION.md) compares supplied executable quotes against an independent reference, accounts for quote freshness, depth, latency and settlement probability, and retains a NO_TRADE option. It is a route-choice model only; it does not submit swaps.
 
+The [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md) now has an executable safety-arbitration subset: integrity/data/accounting gates, risk-prioritized ADD/REMOVE/HOLD/PAUSE/RECONCILE/OBSERVE decisions and time-persistent hysteresis. Proposal bundling, canonical state-version checks, pre-trade simulation and paper execution remain open.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
