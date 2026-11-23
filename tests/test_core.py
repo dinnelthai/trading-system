@@ -1,10 +1,14 @@
 import math
 import random
 
+import pytest
+
 from pump_sim.core import (
+    Action,
     BondingCurve,
     CandleBuilder,
     ConstantProductPool,
+    Phase,
     SimConfig,
     SimulationEngine,
     Traits,
@@ -161,6 +165,51 @@ def test_post_migration_pool_runs_agents_and_preserves_supply():
     assert result["trades"] > 0
     assert abs(result["token_supply_accounting_error"]) < 1e-3
     assert result["pool_quote_reserve"] > 0
+
+
+def test_lp_withdrawal_resets_returned_token_cost_basis_to_withdrawal_price():
+    engine = SimulationEngine(SimConfig(
+        seed=404,
+        duration_s=10,
+        n_snipers=0,
+        n_kols=0,
+        n_arbitrageurs=0,
+        n_retail=0,
+        n_whales=0,
+        n_lp_providers=0,
+        n_mev_risk_agents=0,
+    ))
+    dev = engine.dev
+    dev.account.tokens = 100.0
+    dev.account.quote = 1.0
+    dev.account.avg_entry_price = 0.01
+    engine.market.pool = ConstantProductPool(10_000.0, 10.0, 30.0)
+    engine.market.phase = Phase.POOL
+
+    engine._execute(dev, Action("add_lp"), 0.0)
+    assert dev.account.lp_shares > 0
+    engine.market.pool.buy(2.0)
+    withdrawal_price = engine.market.price
+    engine._execute(dev, Action("remove_lp"), 1.0)
+    assert dev.account.avg_entry_price == pytest.approx(withdrawal_price)
+
+    realized_after_lp_exit = dev.account.realized_pnl
+    tokens_to_sell = dev.account.tokens
+    expected_sale_pnl = engine.market.preview_sell(tokens_to_sell) - tokens_to_sell * withdrawal_price
+    engine._execute(dev, Action("sell", amount=tokens_to_sell), 2.0)
+    assert dev.account.realized_pnl - realized_after_lp_exit == pytest.approx(expected_sale_pnl)
+
+
+def test_arbitrage_accounts_for_external_venue_fees():
+    engine = SimulationEngine(SimConfig(seed=405, duration_s=10))
+    arb = next(agent for agent in engine.agents if agent.kind == "arbitrageur")
+    engine.reference_price = engine.market.price * 1.20
+    initial_external_tokens = engine.market.external_token_reserve
+
+    engine._execute(arb, Action("arb_buy_local", amount=2.0), 1.0)
+
+    assert engine.total_external_fees_quote > 0
+    assert engine.market.external_token_reserve > initial_external_tokens
 
 
 def test_dev_vesting_releases_locked_supply_on_public_schedule():
