@@ -675,10 +675,13 @@ class ConstantProductPool:
         fee = gross * self.fee_rate
         net = gross - fee
         protocol_fee = fee * (1.0 - self.lp_fee_share)
+        lp_fee = fee - protocol_fee
         self.token_reserve += token_in
-        self.quote_reserve -= gross - protocol_fee
+        # The seller receives net output; protocol fees leave the pool while
+        # the LP-retained fee remains in reserves.
+        self.quote_reserve -= gross - lp_fee
         self.fees_collected += fee
-        self.lp_fees_collected += fee - protocol_fee
+        self.lp_fees_collected += lp_fee
         self.protocol_fees_collected += protocol_fee
         return Execution(token_in, net, fee)
 
@@ -1356,21 +1359,33 @@ class SimulationEngine:
 
         if action.kind == "remove_lp" and self.market.phase == Phase.POOL and agent.account.lp_shares > EPS:
             before = pool_before
-            tokens, quote = self.market.pool.remove_liquidity(agent.account.lp_shares)  # type: ignore[union-attr]
+            shares_before = agent.account.lp_shares
+            # For REMOVE_LP, amount is the fraction of this account's LP shares
+            # to withdraw. A zero amount preserves the legacy full-withdrawal behavior.
+            remove_fraction = min(1.0, max(0.0, action.amount)) if action.amount > EPS else 1.0
+            shares_to_remove = shares_before * remove_fraction
+            if shares_to_remove <= EPS:
+                return
+            tokens, quote = self.market.pool.remove_liquidity(shares_to_remove)  # type: ignore[union-attr]
             withdrawal_price = self.market.price
+            basis_fraction = shares_to_remove / shares_before
+            basis_released = agent.account.lp_cost_basis_quote * basis_fraction
             lp_value = quote + tokens * withdrawal_price
-            agent.account.realized_pnl += lp_value - agent.account.lp_cost_basis_quote
+            agent.account.realized_pnl += lp_value - basis_released
             existing_tokens = agent.account.tokens
             existing_cost = existing_tokens * agent.account.avg_entry_price
             returned_cost = tokens * withdrawal_price
-            agent.account.lp_cost_basis_quote = 0.0
+            agent.account.lp_cost_basis_quote = max(0.0, agent.account.lp_cost_basis_quote - basis_released)
             agent.account.tokens += tokens
             if agent.account.tokens > EPS:
                 agent.account.avg_entry_price = (existing_cost + returned_cost) / agent.account.tokens
             else:
                 agent.account.avg_entry_price = 0.0
             agent.account.quote += quote
-            agent.account.lp_shares = 0.0
+            agent.account.lp_shares = max(0.0, shares_before - shares_to_remove)
+            if agent.account.lp_shares <= EPS:
+                agent.account.lp_shares = 0.0
+                agent.account.lp_cost_basis_quote = 0.0
             self._record_pool_state_event("liquidity_remove", timestamp, agent, before)
             return
 
