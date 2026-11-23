@@ -5,6 +5,7 @@
 **Status:** Theory defined; adaptive policy, empirical calibration and simulator implementation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Decision authority:** [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md)  
+**Capital allocation:** [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md)  
 **Scope:** Pump.fun bonding curve → graduation → fixed PumpSwap CPMM; spot-only treasury inventory and LP exposure
 
 > This document defines a transparent, risk-aware treasury exit policy. It is not a claim that adaptive exit logic is implemented, does not authorize live execution, and does not provide a way to disguise beneficial ownership or manufacture market activity.
