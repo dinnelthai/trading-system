@@ -177,3 +177,19 @@ def test_accepts_decimal_strings_from_json_rpc_decoders():
     )
     assert state.effective_quote_reserves == 109_700
     assert state.unclaimed_fee_total == 300
+
+
+def test_direct_state_construction_normalizes_decimal_string_fields():
+    state = PumpSwapPoolState(
+        base_vault_amount="2000000",
+        quote_vault_amount="110000",
+        base_decimals="6",
+        quote_decimals="3",
+        virtual_quote_reserves="-300",
+        protocol_fees_unclaimed="200",
+        creator_fees_unclaimed="100",
+    )
+    assert state.base_vault_amount == 2_000_000
+    assert isinstance(state.base_vault_amount, int)
+    assert state.virtual_quote_reserves == -300
+    assert state.effective_quote_reserves == 109_700
