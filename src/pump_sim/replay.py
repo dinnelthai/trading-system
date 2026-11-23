@@ -463,6 +463,8 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
         raise ValueError("events contain duplicate event_id values")
 
     states: Dict[str, Tuple[int, int]] = {}
+    quote_vault_states: Dict[str, int] = {}
+    virtual_quote_states: Dict[str, int] = {}
     lp_states: Dict[str, int] = {}
     event_counts: Counter[str] = Counter()
     continuity_mismatches = []
@@ -548,6 +550,30 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                         "pre_migration_pool_raw": list(current_pool),
                         "migration_after_raw": list(after),
                     })
+            if event.pool_quote_vault_before_raw is not None:
+                current_vault = quote_vault_states.get(event.reserve_domain)
+                current_virtual = virtual_quote_states.get(event.reserve_domain)
+                before_vault = int(event.pool_quote_vault_before_raw)
+                before_virtual = int(event.pool_virtual_quote_reserve_before_raw)
+                if current_vault is not None and current_vault != before_vault:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "migration_quote_vault_continuity",
+                        "expected_before_raw": current_vault,
+                        "migration_before_raw": before_vault,
+                    })
+                if current_virtual is not None and current_virtual != before_virtual:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "migration_virtual_quote_continuity",
+                        "expected_before_raw": current_virtual,
+                        "migration_before_raw": before_virtual,
+                    })
+            if event.pool_quote_vault_after_raw is not None:
+                quote_vault_states[event.reserve_domain] = int(event.pool_quote_vault_after_raw)
+                virtual_quote_states[event.reserve_domain] = int(event.pool_virtual_quote_reserve_after_raw)
             states[event.reserve_domain] = after
             continue
 
@@ -586,6 +612,31 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                         "base_reserve_error_bps": base_error_bps,
                         "quote_reserve_error_bps": quote_error_bps,
                     })
+            if event.pool_quote_vault_after_raw is not None:
+                observed_vault = int(event.pool_quote_vault_after_raw)
+                observed_virtual = int(event.pool_virtual_quote_reserve_after_raw)
+                current_vault = quote_vault_states.get(event.reserve_domain)
+                current_virtual = virtual_quote_states.get(event.reserve_domain)
+                if current_vault is None:
+                    quote_vault_states[event.reserve_domain] = observed_vault
+                elif current_vault != observed_vault:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "snapshot_quote_vault_drift",
+                        "expected_raw": current_vault,
+                        "snapshot_raw": observed_vault,
+                    })
+                if current_virtual is None:
+                    virtual_quote_states[event.reserve_domain] = observed_virtual
+                elif current_virtual != observed_virtual:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "snapshot_virtual_quote_reserve_drift",
+                        "expected_raw": current_virtual,
+                        "snapshot_raw": observed_virtual,
+                    })
             continue
 
         if event.event_type not in STATE_TRANSITION_TYPES:
@@ -612,6 +663,30 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
         price_before = _human_price(before[1], before[0], event.token_decimals, event.quote_decimals)
         price_after = _human_price(after[1], after[0], event.token_decimals, event.quote_decimals)
         states[event.reserve_domain] = after
+        if event.pool_quote_vault_before_raw is not None:
+            before_vault = int(event.pool_quote_vault_before_raw)
+            before_virtual = int(event.pool_virtual_quote_reserve_before_raw)
+            current_vault = quote_vault_states.get(event.reserve_domain)
+            current_virtual = virtual_quote_states.get(event.reserve_domain)
+            if current_vault is not None and current_vault != before_vault:
+                continuity_mismatches.append({
+                    "event_id": event.event_id,
+                    "domain": event.reserve_domain,
+                    "kind": "pool_quote_vault_continuity",
+                    "expected_before_raw": current_vault,
+                    "event_before_raw": before_vault,
+                })
+            if current_virtual is not None and current_virtual != before_virtual:
+                continuity_mismatches.append({
+                    "event_id": event.event_id,
+                    "domain": event.reserve_domain,
+                    "kind": "pool_virtual_quote_reserve_continuity",
+                    "expected_before_raw": current_virtual,
+                    "event_before_raw": before_virtual,
+                })
+        if event.pool_quote_vault_after_raw is not None:
+            quote_vault_states[event.reserve_domain] = int(event.pool_quote_vault_after_raw)
+            virtual_quote_states[event.reserve_domain] = int(event.pool_virtual_quote_reserve_after_raw)
 
         if event.event_type == "curve_swap" and event.real_token_reserve_before_raw is not None:
             real_before = (
@@ -697,6 +772,8 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             "spot_price": _human_price(
                 quote_raw, base_raw, ordered[0].token_decimals, ordered[0].quote_decimals
             ),
+            "quote_vault_reserve_raw": quote_vault_states.get(domain),
+            "virtual_quote_reserve_raw": virtual_quote_states.get(domain),
         }
 
     mismatch_count = len(continuity_mismatches)
