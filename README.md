@@ -28,6 +28,7 @@ The [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md) now has an executable
 - **Early snipers:** fast launch participation, heterogeneous holding horizons, and probabilistic migration exits.
 - **KOLs:** stochastic posts with individual credibility; posts affect attention and sentiment with noise and decay.
 - **Arbitrageurs:** trade a finite-inventory external reference venue against the local market, accounting for external fees and depth.
+- **Independent informed traders:** trade on a noisy private estimate of latent project quality with lower social-sensitivity and inventory-aware buy/sell decisions.
 - **Retail:** heterogeneous momentum, social-proof, noise, FOMO, risk aversion, and loss aversion.
 - **Whales:** larger and less frequent orders with different risk thresholds.
 - **LP providers:** acquire inventory, add liquidity when fee opportunity compensates for risk, and withdraw when risk thresholds are breached.
