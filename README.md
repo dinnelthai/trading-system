@@ -6,13 +6,13 @@ A stochastic agent-based research simulator for studying a token launch from bon
 
 ## Target product direction
 
-The long-term product direction is a complete **Market Making & Market Quality System**, not a standalone LP Manager. The core liquidity strategy uses a fixed PumpSwap CPMM pool with proportional add/remove decisions; dynamic DLMM Bin and CLMM Tick repositioning is outside the current core scope. The target architecture is documented in [Market Making & Market Quality System](docs/MARKET_MAKING_MARKET_QUALITY.md), with decision arbitration specified in [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md).
+The long-term product direction is a complete **Market Making & Market Quality System**, not a standalone LP Manager. The core liquidity strategy uses a fixed PumpSwap CPMM pool with proportional add/remove decisions; dynamic DLMM Bin and CLMM Tick repositioning is outside the current core scope. The target architecture is documented in [Market Making & Market Quality System](docs/MARKET_MAKING_MARKET_QUALITY.md), with decision arbitration specified in [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md) and treasury exit theory specified in [Dev Treasury & Exit Intelligence](docs/DEV_TREASURY_EXIT.md).
 
 This is a target-system specification, not a claim that all engines are implemented. The current repository remains a research and stress-testing simulator; live execution is outside its current scope.
 
 ## Implemented participant population
 
-- **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, and risk-based withdrawal of its own LP position.
+- **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
 - **Early snipers:** fast launch participation, heterogeneous holding horizons, and probabilistic migration exits.
 - **KOLs:** stochastic posts with individual credibility; posts affect attention and sentiment with noise and decay.
 - **Arbitrageurs:** trade a finite-inventory external reference venue against the local market, accounting for external fees and depth.
@@ -83,6 +83,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 
 - [Market Making & Market Quality System — product direction and research specification](docs/MARKET_MAKING_MARKET_QUALITY.md)
 - [Market Making Decision Orchestrator — arbitration, hard constraints and action selection](docs/DECISION_ORCHESTRATOR.md)
+- [Dev Treasury & Exit Intelligence — optimal stopping, route-aware exit and beneficial-owner accounting](docs/DEV_TREASURY_EXIT.md)
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)
