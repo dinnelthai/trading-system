@@ -299,6 +299,68 @@ M_C^{incremental}=\eta_Cr_C\tau_C\epsilon_C
 
 where \(\tau_C=V_C/T\). Add this to a **project-wide** capital allocation objective only when the causal depth-to-volume effect is supported by data. Do not add the Creator Fee on baseline volume to LP yield; it exists independently of Dev LP ownership.
 
+### 7.2 Closed-form Dev LP size when depth does not increase volume
+
+A useful baseline is the conservative case where additional pool depth does not create additional genuine volume, so \(\epsilon_V=0\), the active fee tier is constant, and external LP capital \(E\) remains fixed.
+
+Let \(K_D\) be Dev's LP claim value and \(V\) the observed genuine quote volume per day. Dev's daily LP fee accrual is:
+
+\[
+F_D(K_D)=\frac{K_D}{K_D+E}f_LV
+\]
+
+Define the daily marginal hurdle:
+
+\[
+h=\frac{\sigma_d^2}{8}+c_d+r_{alt}
+\]
+
+where \(r_{alt}\) is the risk-adjusted shadow value per day of keeping the same assets in the best alternative allocation. The simplified net incremental value is:
+
+\[
+\Pi_D(K_D)=\frac{K_D}{K_D+E}f_LV-hK_D
+\]
+
+Its derivative is:
+
+\[
+\frac{d\Pi_D}{dK_D}
+=\frac{f_LVE}{(K_D+E)^2}-h
+\]
+
+Setting the derivative to zero gives:
+
+\[
+\boxed{
+K_D^*=
+\max\left(
+0,\sqrt{\frac{f_LVE}{h}}-E
+\right)
+}
+\]
+
+Then clamp \(K_D^*\) to the authorized Dev LP budget and any pool-depth/ownership constraints.
+
+Interpretation:
+
+- If \(f_LVE\leq hE^2\), the unconstrained optimum is zero: under these assumptions, no additional Dev capital should be allocated to LP.
+- If \(K_D^*>0\), the marginal fee capture falls as Dev's LP share increases while the LVR and alternative-capital hurdle remain proportional to capital.
+- If the actual Dev LP claim is above \(K_D^*\), the model flags possible over-allocation. It does not automatically withdraw: the Orchestrator must evaluate depth loss, withdrawal costs, token inventory risk and market-quality constraints.
+- If measured volume rises with depth, \(\epsilon_V\neq0\), use the general marginal rule or a numerical state-transition optimizer instead of this closed form.
+- Baseline Creator Fee is excluded from \(\Pi_D\), because it does not depend on Dev's LP capital. Only an independently validated incremental-volume effect may be added as a separate project-wide synergy.
+
+**Numerical continuation of Section 10:** let external LP capital \(E=80\) SOL, genuine volume \(V=300\) SOL/day, daily volatility \(\sigma_d=20\%\), and \(c_d=r_{alt}=0\).
+
+| LP fee rate | Unconstrained optimal Dev LP claim |
+|---:|---:|
+| 0.020% | 0 SOL |
+| 0.200% | 17.98 SOL |
+| 0.250% | 29.54 SOL |
+
+At 0.200%, the simplified optimum is about 17.98 SOL. If the alternative allocation has an additional 0.10% daily risk-adjusted hurdle, the same optimum falls to about 9.44 SOL. This shows why the best LP allocation depends not only on fee rate and volatility, but also on the value of retaining the assets outside the pool.
+
+These values are analytical examples under constant fee tier, constant volume, fixed external LP capital and diffusion-only LVR. They are not a live sizing recommendation.
+
 ## 8. Portfolio-level capital allocation
 
 Let \(B\) be the investable quote-equivalent capital budget, excluding restricted/locked assets and separately valued receivables. Define:
