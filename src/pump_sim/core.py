@@ -672,6 +672,23 @@ class SimulationEngine:
         self.attention = max(0.1, min(20.0, 1.0 + (self.attention - 1.0) * math.exp(-dt / 180.0) + self.rng.gauss(0, 0.015)))
         self.sentiment = max(-1.0, min(1.0, self.sentiment * math.exp(-dt / 300.0) + self.rng.gauss(0, 0.012)))
 
+    def _holder_concentration(self) -> Dict[str, float]:
+        circulating = max(self.config.total_supply - self.market.locked_supply, 1.0)
+        exposures = []
+        for agent in self.agents:
+            if agent.kind == "mev_risk":
+                continue
+            lp_token_claim = 0.0
+            if self.market.pool and self.market.pool.total_lp_shares > EPS:
+                lp_token_claim = self.market.pool.token_reserve * agent.account.lp_shares / self.market.pool.total_lp_shares
+            exposures.append(agent.account.tokens + lp_token_claim)
+        ordered = sorted(exposures, reverse=True)
+        return {
+            "top_holder_share_including_dev": (ordered[0] if ordered else 0.0) / circulating,
+            "top_5_holders_share": sum(ordered[:5]) / circulating,
+            "wallet_holder_hhi": sum((amount / circulating) ** 2 for amount in exposures),
+        }
+
     def _snapshot(self, timestamp: float) -> Snapshot:
         price = self.market.price
         previous = self.price_history[-1] if self.price_history else price
@@ -990,6 +1007,7 @@ class SimulationEngine:
                     "min": min(samples, default=0.0),
                     "max": max(samples, default=0.0),
                 }
+        concentration = self._holder_concentration()
         observed_bars = self.observed_candles.bars()
         true_bars = self.true_candles.bars()
         observed_volume = sum(c.volume_quote for c in observed_bars)
@@ -1044,6 +1062,7 @@ class SimulationEngine:
             "dev_supply_share": self.config.dev_allocation / self.config.total_supply,
             "dev_float_share": self._snapshot(self.config.duration_s).dev_float_share,
             "top_holder_share": self._snapshot(self.config.duration_s).top_holder_share,
+            **concentration,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
             "dev_total_token_exposure": (self.dev.account.tokens + (self.market.pool.token_reserve * self.dev.account.lp_shares / max(self.market.pool.total_lp_shares, EPS) if self.dev and self.market.pool else 0.0)) if self.dev else 0.0,
             "dev_locked_tokens": self.dev_locked_balance,
@@ -1092,7 +1111,8 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
     for key in ("final_price", "price_return", "max_drawdown", "trades", "true_volume_quote",
                 "fees_quote", "external_fees_quote", "total_fees_including_external_quote",
                 "lp_fees_quote", "estimated_mev_risk_cost_quote",
-                "dev_float_share", "top_holder_share", "observed_to_true_volume_ratio",
+                "dev_float_share", "top_holder_share", "top_holder_share_including_dev", "top_5_holders_share",
+                "wallet_holder_hhi", "observed_to_true_volume_ratio",
                 "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error"):
         xs = values(key)
         metrics[key] = {
