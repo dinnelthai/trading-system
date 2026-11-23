@@ -99,6 +99,29 @@ def test_token_supply_is_conserved_across_curve_pool_and_external_venue():
     assert math.isclose(total, config.total_supply, rel_tol=1e-9, abs_tol=1e-3)
 
 
+def test_dev_vesting_releases_locked_supply_on_public_schedule():
+    config = SimConfig(
+        seed=31,
+        duration_s=5,
+        dev_vesting_start_s=2,
+        dev_vesting_interval_s=2,
+        dev_vesting_fraction_per_interval=0.10,
+        n_snipers=0,
+        n_kols=0,
+        n_arbitrageurs=0,
+        n_retail=0,
+        n_whales=0,
+        n_lp_providers=0,
+        n_mev_risk_agents=0,
+    )
+    engine = SimulationEngine(config)
+    initial_locked = engine.dev_locked_balance
+    result = engine.run()
+    assert engine.dev_locked_balance < initial_locked
+    assert result["dev_vested_tokens"] > 0
+    assert abs(result["token_supply_accounting_error"]) < 1e-3
+
+
 def test_monte_carlo_reports_distribution_not_only_one_path():
     result = run_monte_carlo(SimConfig(seed=10, duration_s=60), runs=3)
     assert result["runs"] == 3
