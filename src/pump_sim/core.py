@@ -100,6 +100,8 @@ class SimConfig:
             raise ValueError("block_interval_s and candle_interval_s must be positive")
         if self.curve_virtual_token_reserve <= 0 or self.curve_virtual_quote_reserve <= 0:
             raise ValueError("curve virtual reserves must be positive")
+        if self.curve_real_token_reserve >= self.curve_virtual_token_reserve:
+            raise ValueError("curve_real_token_reserve must be below virtual token reserves")
         if self.graduation_quote_reserve <= 0 or self.external_depth_quote <= 0:
             raise ValueError("expected graduation quote and external depth must be positive")
         if self.initial_capital_scale <= 0 or self.initial_capital_dispersion < 0:
@@ -1090,10 +1092,9 @@ class SimulationEngine:
             else:
                 input_amount = min(action.amount, agent.account.tokens)
                 quoted_out = self.market.preview_sell(input_amount)
-            tolerance_bps = max(
-                agent.traits.slippage_tolerance_bps,
-                self.config.default_slippage_tolerance_bps,
-            )
+            tolerance_bps = agent.traits.slippage_tolerance_bps
+            if tolerance_bps <= 0:
+                tolerance_bps = self.config.default_slippage_tolerance_bps
             action.quoted_amount_out = quoted_out
             action.min_amount_out = quoted_out * (1.0 - tolerance_bps / 10_000.0)
         if action.kind in ("buy", "sell", "arb_buy_local", "arb_sell_local"):
@@ -1299,7 +1300,10 @@ class SimulationEngine:
             tracked_trade = Trade(
                 timestamp, agent.agent_id, agent.kind, "buy", trade_phase,
                 execution.amount_out, execution.amount_in, price, execution.fee, mev_cost,
-                curve_quote_amount=execution.curve_gross_quote_in or execution.amount_in,
+                curve_quote_amount=(
+                    execution.curve_gross_quote_in or execution.amount_in
+                    if trade_phase == Phase.CURVE.value else 0.0
+                ),
                 synthetic_pool_quote_amount=execution.synthetic_pool_gross_quote_in,
                 synthetic_pool_token_amount=execution.synthetic_pool_token_out,
             )
@@ -1511,6 +1515,7 @@ class SimulationEngine:
             "migration_price_gap_bps": self.market.migration_price_gap_bps,
             "curve_terminal_price": self.market.curve_terminal_price,
             "curve_market_cap_quote": self.market.curve.market_cap_quote,
+            "market_fdv_quote": self.market.price * self.config.total_supply,
             "curve_spot_price": self.market.curve.price,
             "curve_completion_flag": self.market.curve.complete,
             "curve_quote_reserve_at_migration": self.market.curve_quote_reserve_at_migration,
