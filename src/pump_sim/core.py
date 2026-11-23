@@ -26,6 +26,7 @@ from .curve_math import (
     net_quote_from_spendable,
     select_curve_fee_rates,
 )
+from .pool_analytics import candle_comparison_metrics, lp_ownership_metrics, pool_depth_by_price_impact
 
 
 EPS = 1e-12
@@ -62,6 +63,7 @@ class SimConfig:
     curve_fee_tiers: List[Dict[str, float]] = field(default_factory=list)
     curve_depth_impact_bps: float = 500.0
     default_slippage_tolerance_bps: float = 500.0
+    record_pool_event_trace: bool = False
     pool_fee_bps: float = 30.0
     pool_lp_fee_share: float = 0.70
     initial_lp_lock_fraction: float = 1.0
@@ -267,6 +269,7 @@ class Trade:
     spot_price_before: float = 0.0
     spot_price_after: float = 0.0
     price_impact_bps: float = 0.0
+    execution_slippage_bps: float = 0.0
 
 
 @dataclass
@@ -299,6 +302,11 @@ class Candle:
     close: float
     volume_quote: float = 0.0
     trades: int = 0
+    volume_tokens: float = 0.0
+    buy_volume_quote: float = 0.0
+    sell_volume_quote: float = 0.0
+    buy_trades: int = 0
+    sell_trades: int = 0
 
 
 class CandleBuilder:
@@ -306,17 +314,41 @@ class CandleBuilder:
         self.interval_s = interval_s
         self._bars: Dict[int, Candle] = {}
 
-    def update(self, timestamp: float, price: float, volume_quote: float) -> None:
+    def update(
+        self,
+        timestamp: float,
+        price: float,
+        volume_quote: float,
+        token_amount: float = 0.0,
+        side: str = "",
+    ) -> None:
         start = int(timestamp // self.interval_s) * self.interval_s
+        normalized_side = (
+            "buy" if side in ("buy", "arb_buy_local")
+            else "sell" if side in ("sell", "arb_sell_local")
+            else ""
+        )
+        buy_volume = volume_quote if normalized_side == "buy" else 0.0
+        sell_volume = volume_quote if normalized_side == "sell" else 0.0
+        buy_trades = 1 if normalized_side == "buy" else 0
+        sell_trades = 1 if normalized_side == "sell" else 0
         bar = self._bars.get(start)
         if bar is None:
-            self._bars[start] = Candle(start, price, price, price, price, volume_quote, 1)
+            self._bars[start] = Candle(
+                start, price, price, price, price, volume_quote, 1,
+                token_amount, buy_volume, sell_volume, buy_trades, sell_trades,
+            )
             return
         bar.high = max(bar.high, price)
         bar.low = min(bar.low, price)
         bar.close = price
         bar.volume_quote += volume_quote
         bar.trades += 1
+        bar.volume_tokens += token_amount
+        bar.buy_volume_quote += buy_volume
+        bar.sell_volume_quote += sell_volume
+        bar.buy_trades += buy_trades
+        bar.sell_trades += sell_trades
 
     def bars(self) -> List[Candle]:
         return [self._bars[k] for k in sorted(self._bars)]
@@ -937,7 +969,7 @@ class SimulationEngine:
         self.trades: List[Trade] = []
         self.true_candles = CandleBuilder(self.config.candle_interval_s)
         self.observed_candles = CandleBuilder(self.config.candle_interval_s)
-        self.feed_queue: List[Tuple[float, int, float, float]] = []
+        self.feed_queue: List[Tuple[float, int, float, float, float, str]] = []
         self.order_queue: List[Tuple[float, float, int, Agent, Action]] = []
         self.activation_queue: List[Tuple[float, int, Agent]] = []
         self.recent_trade_window: Deque[Tuple[float, float]] = deque()
@@ -962,6 +994,15 @@ class SimulationEngine:
         self.order_latency_sum_s = 0.0
         self.order_latency_max_s = 0.0
         self.order_latency_count = 0
+        self.pool_state_events: List[Dict[str, object]] = []
+        self.pool_event_counts: Dict[str, int] = defaultdict(int)
+        self.pool_liquidity_added_token = 0.0
+        self.pool_liquidity_added_quote = 0.0
+        self.pool_liquidity_removed_token = 0.0
+        self.pool_liquidity_removed_quote = 0.0
+        self.pool_swap_price_impact_abs_sum_bps = 0.0
+        self.pool_swap_price_impact_max_bps = 0.0
+        self.pool_swap_count = 0
 
     def _new_agent(self, kind: str, index: int, quote: float, tokens: float = 0.0) -> Agent:
         agent_rng = random.Random(self.seed_rng.getrandbits(64))
@@ -1139,22 +1180,123 @@ class SimulationEngine:
         self.recent_volume_quote += trade.quote_amount
         self.total_fees_quote += trade.fee_quote
         self.total_mev_risk_cost += trade.mev_risk_cost_quote
-        self.true_candles.update(trade.timestamp, trade.price, trade.quote_amount)
+        self.true_candles.update(
+            trade.timestamp, trade.price, trade.quote_amount, trade.token_amount, trade.side
+        )
         if self.rng.random() < self.config.feed_drop_probability:
             self.feed_dropped += 1
         else:
             latency = self.rng.expovariate(1.0 / max(self.config.feed_mean_latency_s, 0.02))
             self.sequence += 1
-            heapq.heappush(self.feed_queue, (trade.timestamp + latency, self.sequence, trade.price, trade.quote_amount))
+            heapq.heappush(
+                self.feed_queue,
+                (trade.timestamp + latency, self.sequence, trade.price, trade.quote_amount, trade.token_amount, trade.side),
+            )
             if self.rng.random() < self.config.feed_duplicate_probability:
                 self.sequence += 1
                 self.feed_duplicates += 1
-                heapq.heappush(self.feed_queue, (trade.timestamp + latency + 0.01, self.sequence, trade.price, trade.quote_amount))
+                heapq.heappush(
+                    self.feed_queue,
+                    (trade.timestamp + latency + 0.01, self.sequence, trade.price, trade.quote_amount, trade.token_amount, trade.side),
+                )
+
+    def _capture_pool_state(self) -> Optional[Dict[str, float]]:
+        pool = self.market.pool
+        if pool is None:
+            return None
+        depth = pool_depth_by_price_impact(
+            pool.token_reserve,
+            pool.quote_reserve,
+            self.config.pool_fee_bps,
+            self.config.pool_lp_fee_share,
+            impacts_bps=(100.0, 500.0),
+        )
+        return {
+            "spot_price": pool.price,
+            "token_reserve": pool.token_reserve,
+            "quote_reserve": pool.quote_reserve,
+            "lp_shares": pool.total_lp_shares,
+            "k": pool.token_reserve * pool.quote_reserve,
+            "buy_depth_1pct": depth["1pct"]["buy_gross_quote_in"],
+            "sell_depth_1pct": depth["1pct"]["sell_net_quote_out"],
+            "buy_depth_5pct": depth["5pct"]["buy_gross_quote_in"],
+            "sell_depth_5pct": depth["5pct"]["sell_net_quote_out"],
+        }
+
+    def _record_pool_state_event(
+        self,
+        event_type: str,
+        timestamp: float,
+        actor: Optional[Agent],
+        before: Optional[Dict[str, float]],
+        side: str = "",
+    ) -> None:
+        after = self._capture_pool_state()
+        if after is None:
+            return
+        empty = {
+            "spot_price": 0.0, "token_reserve": 0.0, "quote_reserve": 0.0,
+            "lp_shares": 0.0, "k": 0.0, "buy_depth_1pct": 0.0,
+            "sell_depth_1pct": 0.0, "buy_depth_5pct": 0.0, "sell_depth_5pct": 0.0,
+        }
+        before_state = before or empty
+        price_before = before_state["spot_price"]
+        price_after = after["spot_price"]
+        price_change_bps = (
+            (price_after / price_before - 1.0) * 10_000.0 if price_before > EPS else 0.0
+        )
+        token_delta = after["token_reserve"] - before_state["token_reserve"]
+        quote_delta = after["quote_reserve"] - before_state["quote_reserve"]
+        lp_delta = after["lp_shares"] - before_state["lp_shares"]
+        self.pool_event_counts[event_type] += 1
+
+        if event_type == "liquidity_add":
+            self.pool_liquidity_added_token += max(0.0, token_delta)
+            self.pool_liquidity_added_quote += max(0.0, quote_delta)
+        elif event_type == "liquidity_remove":
+            self.pool_liquidity_removed_token += max(0.0, -token_delta)
+            self.pool_liquidity_removed_quote += max(0.0, -quote_delta)
+        elif event_type == "swap":
+            impact = abs(price_change_bps)
+            self.pool_swap_count += 1
+            self.pool_swap_price_impact_abs_sum_bps += impact
+            self.pool_swap_price_impact_max_bps = max(self.pool_swap_price_impact_max_bps, impact)
+
+        if self.config.record_pool_event_trace:
+            self.pool_state_events.append({
+                "timestamp": timestamp,
+                "event_type": event_type,
+                "actor_id": actor.agent_id if actor else "protocol",
+                "actor_kind": actor.kind if actor else "protocol",
+                "side": side,
+                "spot_price_before": price_before,
+                "spot_price_after": price_after,
+                "price_change_bps": price_change_bps,
+                "token_reserve_before": before_state["token_reserve"],
+                "token_reserve_after": after["token_reserve"],
+                "token_reserve_delta": token_delta,
+                "quote_reserve_before": before_state["quote_reserve"],
+                "quote_reserve_after": after["quote_reserve"],
+                "quote_reserve_delta": quote_delta,
+                "lp_shares_before": before_state["lp_shares"],
+                "lp_shares_after": after["lp_shares"],
+                "lp_shares_delta": lp_delta,
+                "k_before": before_state["k"],
+                "k_after": after["k"],
+                "buy_depth_1pct_before": before_state["buy_depth_1pct"],
+                "buy_depth_1pct_after": after["buy_depth_1pct"],
+                "sell_depth_1pct_before": before_state["sell_depth_1pct"],
+                "sell_depth_1pct_after": after["sell_depth_1pct"],
+                "buy_depth_5pct_before": before_state["buy_depth_5pct"],
+                "buy_depth_5pct_after": after["buy_depth_5pct"],
+                "sell_depth_5pct_before": before_state["sell_depth_5pct"],
+                "sell_depth_5pct_after": after["sell_depth_5pct"],
+            })
 
     def _drain_feed(self, until: float) -> None:
         while self.feed_queue and self.feed_queue[0][0] <= until:
-            arrival, _, price, volume = heapq.heappop(self.feed_queue)
-            self.observed_candles.update(arrival, price, volume)
+            arrival, _, price, volume, token_amount, side = heapq.heappop(self.feed_queue)
+            self.observed_candles.update(arrival, price, volume, token_amount, side)
 
     def _process_dev_vesting(self, timestamp: float) -> None:
         if self.dev is None or self.config.dev_vesting_fraction_per_interval <= 0:
@@ -1171,21 +1313,28 @@ class SimulationEngine:
                 self._schedule(self.dev, Action("sell", amount=sale_amount), self.next_dev_vesting_s)
             self.next_dev_vesting_s += self.config.dev_vesting_interval_s
 
-    def _handle_migration(self) -> None:
-        if self._migration_handled or self.market.phase != Phase.POOL or self.dev is None:
+    def _handle_migration(self, timestamp: Optional[float] = None) -> None:
+        if self._migration_handled or self.market.phase != Phase.POOL:
             return
+        event_time = self.time if timestamp is None else timestamp
         self.reference_price = self.market.price
-        budget = min(self.config.dev_lp_quote_budget, self.dev.account.quote)
-        if budget > EPS and self.dev.account.tokens > EPS:
-            token_used, quote_used, shares = self.market.pool.add_liquidity(self.dev.account.tokens, budget)  # type: ignore[union-attr]
-            self.dev.account.lp_cost_basis_quote += token_used * self.dev.account.avg_entry_price + quote_used
-            self.dev.account.tokens -= token_used
-            self.dev.account.quote -= quote_used
-            self.dev.account.lp_shares += shares
+        self._record_pool_state_event("migration", event_time, None, None)
+        if self.dev is not None:
+            budget = min(self.config.dev_lp_quote_budget, self.dev.account.quote)
+            if budget > EPS and self.dev.account.tokens > EPS:
+                before = self._capture_pool_state()
+                token_used, quote_used, shares = self.market.pool.add_liquidity(self.dev.account.tokens, budget)  # type: ignore[union-attr]
+                self.dev.account.lp_cost_basis_quote += token_used * self.dev.account.avg_entry_price + quote_used
+                self.dev.account.tokens -= token_used
+                self.dev.account.quote -= quote_used
+                self.dev.account.lp_shares += shares
+                if shares > EPS:
+                    self._record_pool_state_event("liquidity_add", event_time, self.dev, before)
         self._migration_handled = True
 
     def _execute(self, agent: Agent, action: Action, timestamp: float) -> None:
         spot_price_before = self.market.price
+        pool_before = self._capture_pool_state()
         tracked_trade: Optional[Trade] = None
         if action.kind == "post":
             self.attention = min(20.0, self.attention + action.attention_delta)
@@ -1193,15 +1342,18 @@ class SimulationEngine:
             return
 
         if action.kind == "add_lp" and self.market.phase == Phase.POOL:
+            before = pool_before
             token_used, quote_used, shares = self.market.pool.add_liquidity(agent.account.tokens, agent.account.quote)  # type: ignore[union-attr]
             if shares > EPS:
                 agent.account.lp_cost_basis_quote += token_used * agent.account.avg_entry_price + quote_used
                 agent.account.tokens -= token_used
                 agent.account.quote -= quote_used
                 agent.account.lp_shares += shares
+                self._record_pool_state_event("liquidity_add", timestamp, agent, before)
             return
 
         if action.kind == "remove_lp" and self.market.phase == Phase.POOL and agent.account.lp_shares > EPS:
+            before = pool_before
             tokens, quote = self.market.pool.remove_liquidity(agent.account.lp_shares)  # type: ignore[union-attr]
             withdrawal_price = self.market.price
             lp_value = quote + tokens * withdrawal_price
@@ -1217,6 +1369,7 @@ class SimulationEngine:
                 agent.account.avg_entry_price = 0.0
             agent.account.quote += quote
             agent.account.lp_shares = 0.0
+            self._record_pool_state_event("liquidity_remove", timestamp, agent, before)
             return
 
         if action.kind == "arb_buy_local":
@@ -1343,13 +1496,23 @@ class SimulationEngine:
             self._record_order_execution(action, timestamp)
 
         if self.market.maybe_migrate(timestamp):
-            self._handle_migration()
+            self._handle_migration(timestamp)
         if tracked_trade is not None:
             tracked_trade.spot_price_before = spot_price_before
             tracked_trade.spot_price_after = self.market.price
             tracked_trade.price_impact_bps = (
                 tracked_trade.spot_price_after / max(spot_price_before, EPS) - 1.0
             ) * 10_000.0
+            if tracked_trade.side in ("buy", "arb_buy_local"):
+                tracked_trade.execution_slippage_bps = (
+                    tracked_trade.price / max(spot_price_before, EPS) - 1.0
+                ) * 10_000.0
+            else:
+                tracked_trade.execution_slippage_bps = (
+                    1.0 - tracked_trade.price / max(spot_price_before, EPS)
+                ) * 10_000.0
+            if pool_before is not None and tracked_trade.phase == Phase.POOL.value:
+                self._record_pool_state_event("swap", timestamp, agent, pool_before, tracked_trade.side)
 
     def run(self) -> Dict[str, object]:
         steps = int(math.ceil(self.config.duration_s / self.config.step_s))
@@ -1389,7 +1552,7 @@ class SimulationEngine:
 
             self._drain_feed(settle_until)
             if self.market.maybe_migrate(settle_until):
-                self._handle_migration()
+                self._handle_migration(settle_until)
 
             price = self.market.price
             previous = self.price_history[-1]
