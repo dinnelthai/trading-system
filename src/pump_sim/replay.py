@@ -475,6 +475,9 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
 
     for event in ordered:
         event_counts[event.event_type] += 1
+        if previous_block_time is not None and event.block_time < previous_block_time:
+            timestamp_regressions += 1
+        previous_block_time = event.block_time
         if event.event_type == "curve_complete":
             if curve_complete_seen:
                 continuity_mismatches.append({
@@ -497,10 +500,6 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                 "domain": "pump_swap_pool",
                 "kind": "post_complete_buy_without_complete_marker",
             })
-        if previous_block_time is not None and event.block_time < previous_block_time:
-            timestamp_regressions += 1
-        previous_block_time = event.block_time
-
         if event.event_type == "migration":
             migration_count += 1
             if event.source_base_reserve_raw is not None:
