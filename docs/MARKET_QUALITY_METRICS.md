@@ -5,7 +5,7 @@
 **Status:** Theoretical specification drafted; empirical calibration and implementation remain open  
 **Scope:** Pump.fun Bonding Curve → graduation → fixed PumpSwap CPMM; genuine independent participation; spot inventory and proportional LP actions  
 **Parent:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
-**Related:** [Pool Microstructure](POOL_MICROSTRUCTURE.md), [Pool Depth Elasticity](DEPTH_ELASTICITY.md), [Dev LP vs Treasury Allocation](DEV_LP_TREASURY_ALLOCATION.md), [Decision Orchestrator](DECISION_ORCHESTRATOR.md), [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md)
+**Related:** [Pool Microstructure](POOL_MICROSTRUCTURE.md), [Pool Depth Elasticity](DEPTH_ELASTICITY.md), [Dev LP vs Treasury Allocation](DEV_LP_TREASURY_ALLOCATION.md), [Decision Orchestrator](DECISION_ORCHESTRATOR.md), [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md), [Market Quality Metrics Engine](MARKET_QUALITY_ENGINE.md), [Canonical Market Event Ledger](MARKET_EVENT_LEDGER.md)
 
 > This document specifies a transparent market-quality and risk-control system. It does not authorize self-trading, wash trading, fabricated volume, artificial candle shaping, deceptive coordination, concealed beneficial ownership, or manipulation of reference prices. Only confirmed genuine swaps are market volume. LP deposits, withdrawals, transfers, failed transactions and feed duplicates are not swaps.
 
@@ -208,7 +208,7 @@ A nonzero basis is not automatically an error: fees, latency, route costs and fi
 
 ### 10.3 Price discovery is not price suppression
 
-The pool must be allowed to move when independent information changes fair value. The target is timely convergence to the current independent reference within executable costs—not reversion to an old price, a preferred price, or a visually smooth trajectory.
+The pool must be allowed to move when independent information changes fair value. The target is timely convergence to the current independent reference within executable costs—not reversion to an old price, a preferred price, or a visually smooth trajectory. The pure reference aggregation and log-basis primitives are implemented in [Market Quality Metrics Engine](MARKET_QUALITY_ENGINE.md); venue ingestion and independence validation remain upstream requirements.
 
 Simple price correlation is insufficient. Measure basis, response delay, executable arbitrage capacity and post-trade markouts together.
 
@@ -256,7 +256,7 @@ T_R=\max(T_b,T_{D,buy},T_{D,sell})
 
 Report the distribution of \(T_R\), not only its mean. Also report maximum basis excursion, minimum depth, failed-order burst, LP withdrawal and the amount of external liquidity replenishment.
 
-Shock classes should come from observed reference jumps, genuine large orders, correlated holder flows, external LP withdrawals and protocol/data outages. Use stochastic or historical shocks, not a hand-authored price path designed to produce a preferred chart.
+Shock classes should come from observed reference jumps, genuine large orders, correlated holder flows, external LP withdrawals and protocol/data outages. Use stochastic or historical shocks, not a hand-authored price path designed to produce a preferred chart. Sustained-window and right-censored recovery measurement is implemented as a pure metric; historical observation adapters and calibrated thresholds remain open.
 
 ---
 
@@ -307,7 +307,7 @@ This is a diagnostic, not a substitute for the exact LP state transition or port
 
 Do not add IL and LVR as if they were independent realized losses. Use actual LP reserve NLV change for the optimizer. Show IL and LVR as separately labeled benchmark diagnostics. The diffusion \(1/8\) variance approximation is a screening baseline; jumps, stale prices, latency, fee tiers and discrete PumpSwap mechanics require event-driven replay.
 
-A high swap volume can be toxic. The allocator must compare LP fees with markout/adverse selection, LVR, inventory risk, costs and capital lock-up—not volume alone.
+A high swap volume can be toxic. The allocator must compare LP fees with markout/adverse selection, LVR, inventory risk, costs and capital lock-up—not volume alone. Trade-side signed markout and fee-adjusted markout primitives are implemented; event-to-reference horizon joins and LVR replay are not.
 
 ---
 
