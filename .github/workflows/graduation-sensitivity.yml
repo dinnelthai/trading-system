@@ -1,0 +1,84 @@
+name: launch-capital-sensitivity
+
+on:
+  push:
+    branches:
+      - feat/agent-based-simulator
+    paths:
+      - .github/workflows/graduation-sensitivity.yml
+  workflow_dispatch:
+    inputs:
+      runs_per_value:
+        description: Independent market paths per capital scale
+        required: true
+        default: "100"
+        type: number
+      duration_s:
+        description: Simulated seconds per market path
+        required: true
+        default: "1800"
+        type: number
+      seed:
+        description: First random seed shared across scenarios
+        required: true
+        default: "20261123"
+        type: number
+
+jobs:
+  sweep:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-capital-sweep]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUNS_PER_VALUE: ${{ inputs.runs_per_value || '100' }}
+      DURATION_S: ${{ inputs.duration_s || '1800' }}
+      SEED: ${{ inputs.seed || '20261123' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install simulator
+        run: python -m pip install -e .
+      - name: Sweep launch capital scale
+        run: |
+          mkdir -p results
+          python -m pump_sim \
+            --config configs/default.json \
+            --seed "$SEED" \
+            --duration "$DURATION_S" \
+            --sweep-field initial_capital_scale \
+            --sweep-values 0.5,1.0,1.5,2.0,3.0 \
+            --runs "$RUNS_PER_VALUE" \
+            --csv-out results/launch-capital-sensitivity.csv \
+            --summary-only \
+            --out results/launch-capital-sensitivity.json
+      - name: Validate sweep output
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("results/launch-capital-sensitivity.json").read_text())
+          scenarios = summary["scenarios"]
+          assert len(scenarios) == 5
+          assert all(0 <= item["graduation_rate"] <= 1 for item in scenarios)
+          with Path("results/launch-capital-sensitivity.csv").open(newline="") as handle:
+              rows = list(csv.DictReader(handle))
+          assert len(rows) == 5
+          for item in scenarios:
+              print(
+                  "capital_scale:", item["value"],
+                  "graduation_rate:", item["graduation_rate"],
+                  "median_time_s:", item["metrics"]["graduation_time_s"]["median"],
+                  "median_curve_net_flow:", item["metrics"]["curve_net_quote_flow"]["median"],
+                  "migration_gap_bps:", item["metrics"]["migration_price_gap_bps"]["median"],
+              )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launch-capital-sensitivity-results
+          path: results/
+          if-no-files-found: error
+          retention-days: 30

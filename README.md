@@ -1,83 +1,92 @@
 # Pump Lifecycle Market Simulator
 
-An agent-based, stochastic research simulator for studying token launch and market lifecycle dynamics across a bonding-curve phase and a post-graduation constant-product pool.
+A stochastic agent-based research simulator for studying a token launch from bonding curve through graduation and post-graduation pool trading.
 
-> Research simulator only. It does not connect to wallets, submit transactions, or provide a strategy for manipulating live markets. Manipulative conduct (wash trading, fabricated volume, deceptive coordination, artificial dumps, and sandwich execution playbooks) is not implemented. Adversarial behavior is represented as measurable risk and stress scenarios.
+> Research and stress-testing only. The project does not connect to wallets or submit transactions. It does not implement wash trading, fabricated volume, deceptive coordination, artificial dumps, or a live sandwich bot. Adverse MEV behavior is represented as an abstract execution-risk estimate.
 
-## Goals
+## Implemented participant population
 
-- Model a complete lifecycle: launch, bonding-curve trading, graduation, pool trading, liquidity changes, and terminal outcomes.
-- Give every participant an independent objective, balance sheet, information set, risk profile, decision cadence, and stochastic policy.
-- Preserve heterogeneity and disorder: independent random streams, random arrival times, asynchronous decisions, noisy private signals, variable trade sizes, correlated shocks, and probabilistic regime changes.
-- Separate latent market state from observed candles so sparse trading, latency, event ordering, and data-quality faults can be studied without fabricating trades.
-- Run reproducible seeded experiments and multi-seed Monte Carlo batches.
-- Report price impact, depth, concentration, inventory risk, fee income, drawdown, realized/unrealized PnL, graduation probability, survival, and participant-level outcomes.
+- **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, and risk-based withdrawal of its own LP position.
+- **Early snipers:** fast launch participation, heterogeneous holding horizons, and probabilistic migration exits.
+- **KOLs:** stochastic posts with individual credibility; posts affect attention and sentiment with noise and decay.
+- **Arbitrageurs:** trade a finite-inventory external reference venue against the local market, accounting for external fees and depth.
+- **Retail:** heterogeneous momentum, social-proof, noise, FOMO, risk aversion, and loss aversion.
+- **Whales:** larger and less frequent orders with different risk thresholds.
+- **LP providers:** acquire inventory, add liquidity when fee opportunity compensates for risk, and withdraw when risk thresholds are breached.
+- **MEV / sandwich-risk agents:** estimate adverse-execution exposure as a function of trade size and depth; no transaction construction or attack execution.
 
-## Participant types
+Each agent has its own wallet, traits, private random stream, activity clock, latency, and decision policy. Participants do not share one deterministic buy/sell signal.
 
-1. **Dev / treasury** — disclosed inventory, vesting, treasury budget, liquidity commitments, and operational constraints. No covert price-support or dump-and-rebuy policy.
-2. **Early snipers** — fast, short-horizon entrants with heterogeneous launch-signal sensitivity and exit horizons.
-3. **KOLs** — stochastic publishing decisions, audience fit, credibility, disclosure status, and delayed attention effects.
-4. **Arbitrageurs** — compare independent venues/reference prices and trade only when expected spread exceeds fees, impact, and risk.
-5. **Retail traders** — heterogeneous momentum, social-proof, FOMO, loss-aversion, attention, and limited-information behavior.
-6. **Whales** — larger inventories, stronger market-impact awareness, and portfolio/risk constraints.
-7. **LP providers** — fee-versus-inventory-risk decisions, liquidity budgets, and withdrawal constraints.
-8. **MEV / sandwich-risk actor** — abstract adverse-execution stress model that estimates victim slippage/extraction exposure; it does not implement a live sandwich bot or transaction-ordering instructions.
+## Market and randomness
 
-## Market lifecycle
+- Configurable virtual/real-reserve bonding curve with fees and a graduation threshold.
+- Graduation migrates remaining curve reserves into a constant-product pool.
+- Configurable pool fee split between LP accrual and protocol fees.
+- Initial migration LP shares can be marked locked.
+- External reference price follows a stochastic regime process; the external venue has finite token inventory and quote reserves.
+- Continuous-time Poisson-style agent activation, independent private signals, role-specific heavy-tailed wallet capital, random order latency, simulated block settlement, and randomized priority.
+- Quiet / hype / stress / recovery regimes transition probabilistically. No pre-scripted pump-and-dump sequence.
+- True execution candles are separated from observed feed candles. Feed latency, drops, and duplicate deliveries can create chart-observation errors without creating fake true trades.
 
-- **Bonding curve:** configurable virtual/real reserves, fees, supply limits, and graduation threshold.
-- **Graduation:** explicit migration event with configurable initial pool reserves and LP ownership/lock assumptions.
-- **Post-graduation pool:** constant-product AMM by default, with configurable fees and liquidity changes.
-- **Reference venue:** optional noisy external price process for cross-venue basis and arbitrage experiments.
+## Quick start
 
-Protocol parameters are configuration, not hard-coded claims about current Pump.fun / PumpSwap deployment values. Calibrate them against a dated, verified on-chain sample before interpreting results as empirical.
+Python 3.10+; runtime uses only the standard library.
 
-## Stochasticity and reproducibility
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e ".[dev]"
+    pytest -q
 
-- Each agent receives a separate deterministic random-number stream derived from the master seed. Agent iteration order must not change another agent's random draws.
-- Agent traits are sampled from configurable distributions, not assigned one fixed archetype.
-- Decision arrivals use stochastic clocks; order size, latency, slippage tolerance, attention, sentiment, and private signals vary.
-- Market regimes use probabilistic transitions and endogenous feedback; no scenario script dictates a fixed buy-then-dump path.
-- A seed reproduces a run; changing the seed produces a different plausible path. Monte Carlo conclusions must be reported as distributions and confidence intervals, never as one deterministic forecast.
+Run one simulation:
 
-## Model integrity
+    python -m pump_sim --config configs/default.json --out results/run.json
 
-- Keep true reserves, executable depth, latent reference price, executed trades, and observed candles as separate data objects.
-- Never create OHLCV volume without an underlying simulated execution.
-- Mark assumptions and calibration status on every experiment.
-- Include unit tests for AMM invariants, fees, conservation of balances, supply accounting, migration, event ordering, and seeded reproducibility.
+Run 100 independent seeds and export one CSV row per market path:
 
-## Planned package layout
+    python -m pump_sim --config configs/default.json --runs 100 --csv-out results/runs.csv --summary-only --out results/monte-carlo-summary.json
 
-```
-src/pump_sim/
-  config.py
-  random_streams.py
-  domain.py
-  engine.py
-  market/
-    bonding_curve.py
-    constant_product.py
-    lifecycle.py
-    candles.py
-  agents/
-    base.py
-    dev_treasury.py
-    sniper.py
-    kol.py
-    arbitrageur.py
-    retail.py
-    whale.py
-    lp_provider.py
-    mev_risk.py
-  experiments/
-    scenarios.py
-    monte_carlo.py
-    metrics.py
-tests/
-```
+Run the 500-path baseline locally:
 
-## Status
+    python -m pump_sim --config configs/default.json --runs 500 --csv-out results/baseline-runs.csv --summary-only --out results/baseline-summary.json
 
-Initial project specification. The executable engine and calibration data are not yet implemented.
+A manual GitHub Actions workflow (`baseline-simulation`) also runs the 500-path baseline and uploads its JSON/CSV results as an artifact. It becomes manually triggerable after this workflow is merged into the default branch.
+
+Sweep one parameter across scenarios, with 100 seeds per value:
+
+    python -m pump_sim --config configs/default.json --sweep-field dev_allocation --sweep-values 50000000,100000000,150000000,200000000 --runs 100 --out results/dev-concentration.json
+
+Any SimConfig field can be supplied in the JSON config. The Python API exposes SimulationEngine, run_monte_carlo, and run_parameter_sweep.
+
+## Default scenario is synthetic
+
+The current default config uses a standard Pump-style reserve snapshot:
+- Total supply: 1B tokens.
+- Dev pre-minted genesis allocation: 0%.
+- Other locked supply: 0%.
+- Bonding-curve real token inventory: 793.1M.
+- Derived migration inventory: 206.9M.
+- External reference-venue token inventory: 0%.
+- Virtual curve reserves: 1.073B tokens and 30 SOL.
+- Initial migration LP shares: 100% marked locked.
+
+These values are model inputs inherited from the project specification, not a guarantee that every deployment version or launch uses identical parameters. A nonzero Dev genesis allocation is a custom supply layout and changes the residual migration inventory unless other reserve buckets are changed. A Dev curve purchase must be modeled as an executed curve trade, not as a free genesis allocation.
+
+Curve reserves, fees, external venue depth, agent counts, and behavioral parameters remain illustrative until replaced with dated, verified on-chain parameters and calibrated participant distributions.
+
+## Research docs
+
+- [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
+- [Model specification](docs/MODEL.md)
+- [Experiment plan](docs/EXPERIMENTS.md)
+- [Empirical calibration data contract](docs/CALIBRATION.md)
+
+The simulator reports distributions, participant-level outcomes, concentration, liquidity, fees, drawdown, graduation, MEV-risk exposure, and true-versus-observed candle differences. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
+
+
+## Empirical calibration
+
+Normalize on-chain swaps to the schema in `docs/CALIBRATION.md`, then run:
+
+    pump-calibrate --input data/swaps.csv --out results/calibration.json
+
+The report separates observable trade behavior from latent traits that swaps alone cannot identify. It does not overwrite the synthetic default configuration.

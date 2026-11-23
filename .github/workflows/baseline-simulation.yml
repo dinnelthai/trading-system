@@ -1,0 +1,82 @@
+# Includes per-phase gross/net quote flow and relative supply-conservation checks.
+name: baseline-simulation
+
+on:
+  push:
+    branches:
+      - feat/agent-based-simulator
+    paths:
+      - .github/workflows/baseline-simulation.yml
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of independent market paths
+        required: true
+        default: "500"
+        type: number
+      duration_s:
+        description: Simulated seconds per market path
+        required: true
+        default: "1800"
+        type: number
+      seed:
+        description: First random seed
+        required: true
+        default: "20261123"
+        type: number
+
+jobs:
+  baseline:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-baseline]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUNS: ${{ inputs.runs || '500' }}
+      DURATION_S: ${{ inputs.duration_s || '1800' }}
+      SEED: ${{ inputs.seed || '20261123' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install simulator
+        run: python -m pip install -e .
+      - name: Run independent market paths
+        run: |
+          mkdir -p results
+          python -m pump_sim \
+            --config configs/default.json \
+            --seed "$SEED" \
+            --duration "$DURATION_S" \
+            --runs "$RUNS" \
+            --csv-out results/baseline-runs.csv \
+            --summary-only \
+            --out results/baseline-summary.json
+      - name: Validate baseline output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("results/baseline-summary.json").read_text())
+          assert summary["runs"] > 0
+          assert 0 <= summary["graduation_rate"] <= 1
+          assert abs(summary["metrics"]["token_supply_accounting_error"]["mean"]) < 1e-3
+          supply_error = summary["metrics"]["token_supply_accounting_error_fraction"]
+          assert max(abs(supply_error["p10"]), abs(supply_error["p90"])) < 1e-9
+          assert summary["metrics"]["trades"]["mean"] >= 0
+          print("runs:", summary["runs"])
+          print("graduation rate:", summary["graduation_rate"])
+          print("graduation time:", summary["metrics"]["graduation_time_s"])
+          print("mean drawdown:", summary["metrics"]["max_drawdown"]["mean"])
+          print("mean trades:", summary["metrics"]["trades"]["mean"])
+          print("mean quote volume:", summary["metrics"]["true_volume_quote"]["mean"])
+          print("mean curve reserve:", summary["metrics"]["curve_real_quote_reserve"]["mean"])
+          print("mean curve net quote flow:", summary["metrics"]["curve_net_quote_flow"]["mean"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseline-simulation-results
+          path: results/
+          if-no-files-found: error
+          retention-days: 30
