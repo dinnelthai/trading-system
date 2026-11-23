@@ -19,6 +19,8 @@ from .calibration import VALID_ROLES, calibrate_swap_rows
 
 EVENT_TYPES = {
     "curve_swap",
+    "curve_complete",
+    "post_complete_buy",
     "pool_swap",
     "liquidity_add",
     "liquidity_remove",
@@ -26,9 +28,9 @@ EVENT_TYPES = {
     "state_snapshot",
 }
 RESERVE_DOMAINS = {"curve_virtual", "pump_swap_pool"}
-POOL_EVENT_TYPES = {"pool_swap", "liquidity_add", "liquidity_remove"}
-SWAP_EVENT_TYPES = {"curve_swap", "pool_swap"}
-STATE_TRANSITION_TYPES = {"curve_swap", "pool_swap", "liquidity_add", "liquidity_remove"}
+POOL_EVENT_TYPES = {"post_complete_buy", "pool_swap", "liquidity_add", "liquidity_remove"}
+SWAP_EVENT_TYPES = {"curve_swap", "post_complete_buy", "pool_swap"}
+STATE_TRANSITION_TYPES = {"curve_swap", "post_complete_buy", "pool_swap", "liquidity_add", "liquidity_remove"}
 
 
 def _required_text(row: Mapping[str, Any], key: str, line_number: int) -> str:
@@ -63,6 +65,23 @@ def _integer(
     except (TypeError, ValueError) as exc:
         raise ValueError(f"event row {line_number}: {key} must be an integer, got {raw!r}") from exc
     return value
+
+
+def _signed_integer(row: Mapping[str, Any], key: str, line_number: int) -> Optional[int]:
+    raw = row.get(key)
+    if raw is None or str(raw).strip() == "":
+        return None
+    if isinstance(raw, bool):
+        raise ValueError(f"event row {line_number}: {key} must be an integer")
+    try:
+        if isinstance(raw, float) and not raw.is_integer():
+            raise ValueError
+        rendered = str(raw).strip()
+        if any(char in rendered.lower() for char in (".", "e")):
+            raise ValueError
+        return int(rendered)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"event row {line_number}: {key} must be a signed integer, got {raw!r}") from exc
 
 
 def _number(row: Mapping[str, Any], key: str, line_number: int, *, required: bool = False) -> Optional[float]:
@@ -108,6 +127,16 @@ class NormalizedEvent:
     token_amount_raw: int = 0
     quote_amount_raw: int = 0
     fee_quote_raw: int = 0
+    lp_fee_quote_raw: int = 0
+    protocol_fee_quote_raw: int = 0
+    creator_fee_quote_raw: int = 0
+    buyback_fee_quote_raw: int = 0
+    cashback_quote_raw: int = 0
+    holder_rewards_quote_raw: int = 0
+    pool_quote_vault_before_raw: Optional[int] = None
+    pool_quote_vault_after_raw: Optional[int] = None
+    pool_virtual_quote_reserve_before_raw: Optional[int] = None
+    pool_virtual_quote_reserve_after_raw: Optional[int] = None
     base_reserve_before_raw: Optional[int] = None
     quote_reserve_before_raw: Optional[int] = None
     base_reserve_after_raw: Optional[int] = None
@@ -168,8 +197,8 @@ class NormalizedEvent:
         reserve_domain = _required_text(row, "reserve_domain", line_number).lower()
         if reserve_domain not in RESERVE_DOMAINS:
             raise ValueError(f"event row {line_number}: unsupported reserve_domain {reserve_domain!r}")
-        if event_type == "curve_swap" and reserve_domain != "curve_virtual":
-            raise ValueError(f"event row {line_number}: curve_swap requires curve_virtual reserve_domain")
+        if event_type in {"curve_swap", "curve_complete"} and reserve_domain != "curve_virtual":
+            raise ValueError(f"event row {line_number}: {event_type} requires curve_virtual reserve_domain")
         if event_type in POOL_EVENT_TYPES and reserve_domain != "pump_swap_pool":
             raise ValueError(f"event row {line_number}: {event_type} requires pump_swap_pool reserve_domain")
         if event_type == "migration" and reserve_domain != "pump_swap_pool":
@@ -207,6 +236,16 @@ class NormalizedEvent:
             token_amount_raw=_integer(row, "token_amount_raw", line_number, default=0),  # type: ignore[arg-type]
             quote_amount_raw=_integer(row, "quote_amount_raw", line_number, default=0),  # type: ignore[arg-type]
             fee_quote_raw=_integer(row, "fee_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            lp_fee_quote_raw=_integer(row, "lp_fee_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            protocol_fee_quote_raw=_integer(row, "protocol_fee_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            creator_fee_quote_raw=_integer(row, "creator_fee_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            buyback_fee_quote_raw=_integer(row, "buyback_fee_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            cashback_quote_raw=_integer(row, "cashback_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            holder_rewards_quote_raw=_integer(row, "holder_rewards_quote_raw", line_number, default=0),  # type: ignore[arg-type]
+            pool_quote_vault_before_raw=_integer(row, "pool_quote_vault_before_raw", line_number),
+            pool_quote_vault_after_raw=_integer(row, "pool_quote_vault_after_raw", line_number),
+            pool_virtual_quote_reserve_before_raw=_signed_integer(row, "pool_virtual_quote_reserve_before_raw", line_number),
+            pool_virtual_quote_reserve_after_raw=_signed_integer(row, "pool_virtual_quote_reserve_after_raw", line_number),
             base_reserve_before_raw=_integer(row, "base_reserve_before_raw", line_number),
             quote_reserve_before_raw=_integer(row, "quote_reserve_before_raw", line_number),
             base_reserve_after_raw=_integer(row, "base_reserve_after_raw", line_number),
@@ -229,6 +268,9 @@ class NormalizedEvent:
             raise ValueError(f"event row {line_number}: block_time must be nonnegative")
         raw_amounts = (
             event.token_amount_raw, event.quote_amount_raw, event.fee_quote_raw,
+            event.lp_fee_quote_raw, event.protocol_fee_quote_raw, event.creator_fee_quote_raw,
+            event.buyback_fee_quote_raw, event.cashback_quote_raw, event.holder_rewards_quote_raw,
+            event.pool_quote_vault_before_raw, event.pool_quote_vault_after_raw,
             event.base_reserve_before_raw, event.quote_reserve_before_raw,
             event.base_reserve_after_raw, event.quote_reserve_after_raw,
             event.lp_shares_before_raw, event.lp_shares_after_raw,
@@ -267,9 +309,27 @@ class NormalizedEvent:
         if event.event_type == "migration":
             if event.base_reserve_after_raw is None or event.quote_reserve_after_raw is None:
                 raise ValueError(f"event row {line_number}: migration requires destination pool reserves")
+            migration_before = (event.base_reserve_before_raw, event.quote_reserve_before_raw)
+            if any(value is not None for value in migration_before) and any(value is None for value in migration_before):
+                raise ValueError(f"event row {line_number}: migration before reserves must be supplied as a pair")
         if event.event_type == "state_snapshot":
             if event.base_reserve_after_raw is None or event.quote_reserve_after_raw is None:
                 raise ValueError(f"event row {line_number}: state_snapshot requires after reserve fields")
+        virtual_fields = (
+            event.pool_quote_vault_before_raw, event.pool_quote_vault_after_raw,
+            event.pool_virtual_quote_reserve_before_raw, event.pool_virtual_quote_reserve_after_raw,
+        )
+        if any(value is not None for value in virtual_fields):
+            if any(value is None for value in virtual_fields):
+                raise ValueError(f"event row {line_number}: pool quote vault and signed virtual reserve fields must be supplied as complete before/after pairs")
+            if event.reserve_domain != "pump_swap_pool":
+                raise ValueError(f"event row {line_number}: pool quote vault fields require pump_swap_pool reserve_domain")
+            effective_before = int(event.pool_quote_vault_before_raw) + int(event.pool_virtual_quote_reserve_before_raw)
+            effective_after = int(event.pool_quote_vault_after_raw) + int(event.pool_virtual_quote_reserve_after_raw)
+            if effective_before != event.quote_reserve_before_raw:
+                raise ValueError(f"event row {line_number}: quote_reserve_before_raw must equal quote vault plus signed virtual quote reserve")
+            if effective_after != event.quote_reserve_after_raw:
+                raise ValueError(f"event row {line_number}: quote_reserve_after_raw must equal quote vault plus signed virtual quote reserve")
         real_fields = (
             event.real_token_reserve_before_raw, event.real_quote_reserve_before_raw,
             event.real_token_reserve_after_raw, event.real_quote_reserve_after_raw,
@@ -410,8 +470,33 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
     timestamp_regressions = 0
     bootstrap_domains = set()
 
+    curve_complete_seen = False
+    curve_complete_count = 0
+
     for event in ordered:
         event_counts[event.event_type] += 1
+        if event.event_type == "curve_complete":
+            if curve_complete_seen:
+                continuity_mismatches.append({
+                    "event_id": event.event_id,
+                    "domain": "curve_virtual",
+                    "kind": "duplicate_curve_complete",
+                })
+            curve_complete_seen = True
+            curve_complete_count += 1
+            continue
+        if event.event_type == "curve_swap" and curve_complete_seen:
+            continuity_mismatches.append({
+                "event_id": event.event_id,
+                "domain": "curve_virtual",
+                "kind": "curve_swap_after_complete",
+            })
+        if event.event_type == "post_complete_buy" and not curve_complete_seen:
+            continuity_mismatches.append({
+                "event_id": event.event_id,
+                "domain": "pump_swap_pool",
+                "kind": "post_complete_buy_without_complete_marker",
+            })
         if previous_block_time is not None and event.block_time < previous_block_time:
             timestamp_regressions += 1
         previous_block_time = event.block_time
@@ -430,14 +515,28 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                         "migration_source_raw": list(expected_source),
                     })
             after = (int(event.base_reserve_after_raw), int(event.quote_reserve_after_raw))
-            if event.reserve_domain in states:
-                continuity_mismatches.append({
-                    "event_id": event.event_id,
-                    "domain": event.reserve_domain,
-                    "kind": "migration_domain_already_initialized",
-                    "previous_after_raw": list(states[event.reserve_domain]),
-                    "migration_after_raw": list(after),
-                })
+            current_pool = states.get(event.reserve_domain)
+            if current_pool is not None:
+                if event.base_reserve_before_raw is not None:
+                    migration_before = (
+                        int(event.base_reserve_before_raw), int(event.quote_reserve_before_raw)
+                    )
+                    if current_pool != migration_before:
+                        continuity_mismatches.append({
+                            "event_id": event.event_id,
+                            "domain": event.reserve_domain,
+                            "kind": "migration_reserve_continuity",
+                            "expected_before_raw": list(current_pool),
+                            "migration_before_raw": list(migration_before),
+                        })
+                elif current_pool != after:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "migration_destination_reserve_mismatch",
+                        "pre_migration_pool_raw": list(current_pool),
+                        "migration_after_raw": list(after),
+                    })
             states[event.reserve_domain] = after
             continue
 
@@ -533,7 +632,11 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             if price_before is not None and price_after is not None and price_before > 0:
                 marginal_impacts.append((price_after / price_before - 1.0) * 10_000.0)
 
-            phase = "bonding_curve" if event.event_type == "curve_swap" else "pump_swap_pool"
+            phase = (
+                "bonding_curve" if event.event_type == "curve_swap"
+                else "bonding_curve_synthetic_pool_leg" if event.event_type == "post_complete_buy"
+                else "pump_swap_pool"
+            )
             swap_rows.append({
                 "timestamp": str(event.block_time),
                 "wallet": event.actor_wallet,
@@ -624,6 +727,7 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             "remove_spot_price_change_bps": _distribution(liquidity_price_changes["remove"]),
         },
         "migration_count": migration_count,
+        "curve_complete_count": curve_complete_count,
         "final_reserves": final_states,
         "snapshot_comparisons": snapshot_comparisons,
         "reserve_continuity": {
