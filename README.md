@@ -76,6 +76,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 ## Research docs
 
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
+- [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
