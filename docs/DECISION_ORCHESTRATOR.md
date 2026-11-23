@@ -216,6 +216,8 @@ S_Q(b)=\sum_i w_i
 
 The target depth is a service objective, not a reason to exceed authorized capital or risk limits. If no safe bundle can meet it, choose the safest feasible improvement or HOLD and report the remaining shortfall. Never manufacture trading activity to make a quality metric appear satisfied.
 
+The service evaluation must use the complete R08–R19 metric vector in [Market Quality Metrics](MARKET_QUALITY_METRICS.md): two-sided depth, execution cost/fill, independent-reference basis, basis/depth recovery, matched execution fairness, integrity and liquidity sustainability. Report each component and confidence separately. An optional MQS is diagnostic only and is computed only after all hard gates pass. Raw volume, price appreciation, low volatility and candle smoothness are not positive control objectives. True volume is a verified-event input to fee and demand analysis, never a target to manufacture.
+
 ### 6.5 Stage 4 — Risk-adjusted economics
 
 For market-making actions, among bundles with the same best feasible quality-service result, maximize the following market-making economic objective:
@@ -472,6 +474,7 @@ The architecture is defined, but the following work remains:
 - Implement the orchestrator in the simulator and compare it against simple baseline policies.
 - Integrate the Dev Treasury & Exit Engine; derive optimal stopping, partial liquidation and route selection under beneficial-owner accounting.
 - Validate out-of-sample across multiple launches and market regimes.
+- Implement and calibrate the R08–R19 metric pipeline: independent reference construction, basis/no-arbitrage bands, shock basis/depth recovery, trade-level adverse markout, matched fairness residuals, canonical event integrity and lifecycle transitions. See [Market Quality Metrics](MARKET_QUALITY_METRICS.md).
 
 **Next research task:** Derive and validate the Dev Treasury & Exit policy, including the LP-ownership-aware net-exit identity, before implementing joint LP/treasury action bundles and the capital-allocation solver.
 
