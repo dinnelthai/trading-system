@@ -65,5 +65,15 @@ Curve reserves, fees, graduation threshold, external venue depth, agent counts, 
 
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
+- [Empirical calibration data contract](docs/CALIBRATION.md)
 
-The simulator reports distributions, participant-level outcomes, concentration, liquidity, fees, drawdown, graduation, MEV-risk exposure, and true-versus-observed candle differences. A seed is reproducible, not predictive; use many seeds and report uncertainty.
+The simulator reports distributions, participant-level outcomes, concentration, liquidity, fees, drawdown, graduation, MEV-risk exposure, and true-versus-observed candle differences. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
+
+
+## Empirical calibration
+
+Normalize on-chain swaps to the schema in \`docs/CALIBRATION.md\`, then run:
+
+    pump-calibrate --input data/swaps.csv --out results/calibration.json
+
+The report separates observable trade behavior from latent traits that swaps alone cannot identify. It does not overwrite the synthetic default configuration.
