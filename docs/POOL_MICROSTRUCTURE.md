@@ -161,6 +161,8 @@ Q_{effective}=Q_{vault}+Q_{virtual}
 
 The virtual field is an i128 and may be negative. PumpSwap V2 can retain protocol and creator fees in the quote vault while subtracting them from virtual quote reserves so those fees do not count as pricing liquidity. Effective quote reserves remain nonnegative.
 
+This distinction matters for accounting: the raw quote vault can rise while effective quote reserves rise by a smaller amount, remain unchanged, or move differently after fee sweeps and virtual-reserve adjustments. R04 must reconcile the raw vault and signed virtual component separately, not just their sum.
+
 R03's continuous pool model stores the net pricing reserve and tracks protocol fees separately. That is an approximation of effective reserves; it does not yet model the raw quote vault and signed virtual reserve as two independent state variables. R04 therefore stores and reconciles both components from chain data. Never compare a simulated effective quote reserve directly with the raw quote-vault balance.
 
 Fee schedules and instruction variants are slot-dependent. PumpSwap V1/V2 and Bonding Curve legacy/V2/V3 trades may coexist on the same pool or curve. Historical replay must use the fee and reserve semantics active for each transaction, rather than applying the latest global configuration to all historical trades.
