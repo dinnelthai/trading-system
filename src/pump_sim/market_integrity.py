@@ -587,13 +587,16 @@ class MarketIntegrityAnalyzer:
         if not observations:
             return
         ordered_observations = sorted(observations, key=lambda item: item.timestamp_s)
-        volume_by_window: dict[int, float] = defaultdict(float)
+        buy_volume_by_window: dict[int, float] = defaultdict(float)
+        sell_volume_by_window: dict[int, float] = defaultdict(float)
         for event in tape:
             window = event.timestamp // self.config.analysis_window_s
-            if event.side == "sell":
-                volume_by_window[window] += _quote_notional(event)
+            if event.side == "buy":
+                buy_volume_by_window[window] += _quote_notional(event)
+            else:
+                sell_volume_by_window[window] += _quote_notional(event)
 
-        for window, sell_volume in sorted(volume_by_window.items()):
+        for window in sorted(set(buy_volume_by_window) | set(sell_volume_by_window)):
             window_end = (window + 1) * self.config.analysis_window_s
             eligible = [
                 item for item in ordered_observations
@@ -603,14 +606,29 @@ class MarketIntegrityAnalyzer:
             if not eligible:
                 continue
             depth = eligible[-1]
-            if depth.sell_depth_quote > 0:
+            buy_volume = buy_volume_by_window[window]
+            if depth.buy_depth_quote > 0 and buy_volume > 0:
+                pressure = buy_volume / depth.buy_depth_quote
+                if pressure >= self.config.sell_pressure_depth_multiple:
+                    flags.append(
+                        IntegrityFlag(
+                            "BUY_FLOW_EXCEEDS_EXECUTABLE_DEPTH",
+                            "review",
+                            "Observed buy notional materially exceeds the supplied executable buy-depth benchmark; inspect quote freshness and price impact",
+                            start_timestamp_s=window * self.config.analysis_window_s,
+                            end_timestamp_s=window_end,
+                            metrics=(("buy_volume_quote", buy_volume), ("buy_depth_quote", depth.buy_depth_quote), ("pressure_multiple", pressure)),
+                        )
+                    )
+            sell_volume = sell_volume_by_window[window]
+            if depth.sell_depth_quote > 0 and sell_volume > 0:
                 pressure = sell_volume / depth.sell_depth_quote
                 if pressure >= self.config.sell_pressure_depth_multiple:
                     flags.append(
                         IntegrityFlag(
                             "SELL_FLOW_EXCEEDS_EXECUTABLE_DEPTH",
                             "review",
-                            "Observed sell notional materially exceeds the supplied sell-depth benchmark; inspect inventory and execution stress",
+                            "Observed sell notional materially exceeds the supplied executable sell-depth benchmark; inspect inventory and execution stress",
                             start_timestamp_s=window * self.config.analysis_window_s,
                             end_timestamp_s=window_end,
                             metrics=(("sell_volume_quote", sell_volume), ("sell_depth_quote", depth.sell_depth_quote), ("pressure_multiple", pressure)),
