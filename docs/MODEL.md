@@ -17,7 +17,7 @@ The event engine processes participant activations and block settlements in time
 
 | Agent | Main objective | Distinct behavior |
 |---|---|---|
-| Dev / treasury | Manage disclosed project inventory and liquidity commitments | Optional unlocked and locked allocation; time-based vesting and treasury sales only when explicitly configured; optional LP commitment and risk-based withdrawal |
+| Dev / treasury | Manage disclosed project inventory, liquidity commitments and treasury exit | Current simulator: optional unlocked/locked allocation, time-based vesting, configurable fixed-fraction treasury sales, LP commitment and risk-based withdrawal. Target research: beneficial-owner-aware adaptive partial exit and route selection; not yet implemented |
 | Early sniper | Capture short-horizon launch opportunities | High early-curve activity, short heterogeneous holding horizons, probabilistic migration exits, profit/risk exits |
 | KOL | Maximize audience response and credibility | Stochastic posts; individual credibility; noisy attention and sentiment impulses with decay |
 | Arbitrageur | Capture cross-venue basis after costs | Inactive on the bonding curve; after graduation compares the local pool with a noisy external reference venue, subject to fees and finite depth |
@@ -25,6 +25,8 @@ The event engine processes participant activations and block settlements in time
 | Whale | Manage larger inventory and execution risk | Larger and less frequent orders, different entry thresholds, concentration sensitivity |
 | LP provider | Earn fees while managing inventory exposure | May acquire inventory during the curve; adds liquidity after migration when fee opportunity compensates for risk; withdraws when its risk threshold is breached |
 | MEV / sandwich-risk actor | Represent adverse execution pressure | Estimates execution-risk exposure from trade size and depth; abstract stress-test overlay, not a live sandwich bot |
+
+The current Dev treasury sale behavior is a simple configured vesting-sale baseline, not an adaptive optimal-stopping policy. The target policy is specified in DEV_TREASURY_EXIT.md and remains research-only until implemented and validated.
 
 The default Pump-style scenario has no pre-minted Dev allocation. Dev allocation, other locked supply, and external token inventory remain configurable for non-standard launches. Initial wallet capital is sampled from role-specific bounded log-normal distributions. Trait multipliers are also sampled multiplicatively, so a role is a population distribution rather than one fixed personality.
 
