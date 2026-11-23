@@ -3,7 +3,7 @@
 **Document type:** Product direction and research specification  
 **Version:** 0.1  
 **Status:** Direction locked; mathematical specification and simulation validation in progress  
-**Repository:** \`dinnelthai/trading-system\`  
+**Repository:** `dinnelthai/trading-system`  
 **Scope:** Pump.fun launch lifecycle, graduation, PumpSwap and supported Solana AMM venues
 
 > This document defines the target system and its research boundaries. It is not a claim that all engines or strategies are already implemented, nor does it authorize live execution. The current simulator remains a research and stress-testing environment.
