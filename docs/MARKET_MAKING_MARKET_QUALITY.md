@@ -1,7 +1,7 @@
 # Market Making & Market Quality System
 
 **Document type:** Product direction and research specification  
-**Version:** 0.1  
+**Version:** 0.2  
 **Status:** Direction locked; mathematical specification and simulation validation in progress  
 **Repository:** `dinnelthai/trading-system`  
 **Initial implementation scope:** Pump.fun Bonding Curve → graduation → PumpSwap CPMM fixed pool. Other AMM adapters may be researched later, but dynamic DLMM Bin and CLMM Tick positioning are out of the current core scope.
@@ -63,7 +63,7 @@ The system must not apply one fixed policy across all phases. Bonding-curve inve
 
 ---
 
-## 3. Eight core engines
+## 3. Nine core engines
 
 The system is organized by responsibility. Engines share one canonical market-state snapshot and event stream; they do not independently submit conflicting actions.
 
@@ -175,7 +175,7 @@ Track separately:
 
 Do not double-count LP underlying assets and the wallet's LP claim as two independent holdings.
 
-The engine should estimate inventory risk under price, liquidity, and flow scenarios. It should support inventory caps, target ranges, and controlled rebalancing. A treasury holding is not automatically market-making inventory; ownership, mandate, and disclosure must be explicit.
+The engine should estimate inventory risk under price, liquidity, and flow scenarios. It should support inventory caps, target ranges, and controlled rebalancing. A treasury holding is not automatically market-making inventory; ownership, mandate, cost basis and disclosure must be explicit. Treasury exit timing is a separate decision from LP sizing.
 
 ### 3.5 Liquidity Engine
 
@@ -273,6 +273,25 @@ The simulation must not optimize a single attractive price path. It should compa
 
 ---
 
+### 3.9 Dev Treasury & Exit Engine
+
+**Purpose:** Maximize Dev treasury's risk-adjusted realizable net value across the token lifecycle without confusing wallet transfers, LP withdrawals or internalized swaps with genuine external exits.
+
+Responsibilities:
+
+- Aggregate free, locked, vested and LP inventory across Dev-controlled wallets using beneficial-owner attribution and confidence.
+- Preserve source-specific cost basis and distinguish realized proceeds, LP principal, LP fees and unrealized liquidation value.
+- Compare HOLD, partial sale, full exit, LP withdrawal and eligible independent OTC routes.
+- Estimate executable liquidation value from real curve/pool reserves, fee-aware impact, independent reference prices and verified counterparty capacity.
+- Evaluate current net sale value against risk-adjusted continuation value using an optimal-stopping / partial-liquidation model.
+- Coordinate treasury sales and LP actions as one portfolio transition where they interact.
+- Enforce vesting, disclosure, authorization, reserve and market-integrity constraints.
+- Record internal transfers separately; controlled-wallet transfers do not reduce Dev beneficial ownership or count as genuine external distribution.
+
+The engine proposes actions only. The Decision Orchestrator authorizes them and the Execution Engine reconciles confirmed outcomes. See [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md) for the detailed mathematical specification.
+
+**Not a target behavior:** Dev-controlled wallet-to-wallet trades, wash volume, fabricated demand, artificial candles or hidden beneficial ownership. These are hard integrity exclusions, not optimization parameters.
+
 ## 4. Shared state and closed-loop decision architecture
 
 All engines consume one canonical market state. The system uses a proposal-and-arbitration model rather than allowing each agent to act independently.
@@ -282,7 +301,7 @@ All engines consume one canonical market state. The system uses a proposal-and-a
 A proposed high-level state is:
 
 \[
-S_t=(R_t,I_t,L_t,F_t,V_t,C_t,A_t,B_t,Q_t)
+S_t=(R_t,I_t,L_t,T_t,F_t,V_t,C_t,A_t,B_t,Q_t)
 \]
 
 where:
@@ -302,7 +321,7 @@ where:
 A proposed action vector is:
 
 \[
-U_t=(u_L,u_I,u_E,u_P,u_R)
+U_t=(u_L,u_I,u_E,u_P,u_R,u_T)
 \]
 
 where:
@@ -536,7 +555,7 @@ The system should be developed in the following order.
 - Observable behavior separated from inferred intent.
 - Calibration on multiple launches and held-out samples.
 
-### R04 — Inventory and capital allocation
+### R04 — Inventory, capital allocation and treasury exit
 
 - Dev/treasury exposure accounting.
 - Free inventory versus LP claims.
@@ -630,7 +649,7 @@ A research result is not accepted because one chart looks better. It must:
 
 ## 12. Detailed decision and control specifications
 
-The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md).
+The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md). Treasury exit mathematics and beneficial-owner accounting are maintained in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md).
 
 This parent document defines product direction and system boundaries. The dedicated orchestrator document owns the normative decision rules so that the two documents do not drift.
 
@@ -639,6 +658,7 @@ This parent document defines product direction and system boundaries. The dedica
 1. Validate exact PumpSwap proportional LP add/remove accounting against the deployed program semantics.
 2. Implement the canonical state and action-transition contract in the simulator.
 3. Derive inventory conversion and capital allocation under correlated flow and tail-risk scenarios.
-4. Implement the decision orchestrator and multi-timescale state machine.
-5. Run historical replay, matched-seed simulation and paper validation before any live authorization.
+4. Derive and implement Dev Treasury & Exit Intelligence, including beneficial-owner aggregation and optimal-stopping policy.
+5. Implement the decision orchestrator and multi-timescale state machine.
+6. Run historical replay, matched-seed simulation and paper validation before any live authorization.
 
