@@ -285,6 +285,55 @@ def test_lp_withdrawal_resets_returned_token_cost_basis_to_withdrawal_price():
     assert dev.account.realized_pnl - realized_after_lp_exit == pytest.approx(expected_sale_pnl)
 
 
+def test_pool_liquidity_events_preserve_spot_and_swap_events_capture_depth_and_slippage():
+    engine = SimulationEngine(SimConfig(
+        seed=406,
+        duration_s=10,
+        n_snipers=0,
+        n_kols=0,
+        n_arbitrageurs=0,
+        n_retail=0,
+        n_whales=0,
+        n_lp_providers=0,
+        n_mev_risk_agents=0,
+        record_pool_event_trace=True,
+    ))
+    dev = engine.dev
+    assert dev is not None
+    engine.market.pool = ConstantProductPool(10_000.0, 1.0, 30.0)
+    engine.market.phase = Phase.POOL
+    dev.account.tokens = 100.0
+    dev.account.quote = 1.0
+    dev.account.avg_entry_price = 0.01
+
+    initial_price = engine.market.price
+    initial_depth = engine._capture_pool_state()["buy_depth_1pct"]
+    engine._execute(dev, Action("add_lp"), 0.0)
+    after_add = engine._capture_pool_state()
+
+    assert engine.market.price == pytest.approx(initial_price)
+    assert after_add["buy_depth_1pct"] > initial_depth
+    assert engine.pool_event_counts["liquidity_add"] == 1
+
+    engine._execute(dev, Action("remove_lp"), 1.0)
+    after_remove = engine._capture_pool_state()
+    assert engine.market.price == pytest.approx(initial_price)
+    assert after_remove["buy_depth_1pct"] == pytest.approx(initial_depth)
+    assert engine.pool_event_counts["liquidity_remove"] == 1
+
+    engine._execute(dev, Action("buy", amount=0.5), 2.0)
+    assert engine.pool_event_counts["swap"] == 1
+    assert engine.trades[-1].execution_slippage_bps > 0
+    assert engine.trades[-1].spot_price_after > engine.trades[-1].spot_price_before
+    engine._drain_feed(float("inf"))
+
+    result = engine.summary()
+    assert result["pool_swap_event_count"] == 1
+    assert result["pool_trade_mean_execution_slippage_bps"] > 0
+    assert result["pool_tvl_quote"] == pytest.approx(2 * engine.market.pool.quote_reserve)
+    assert len(result["pool_event_trace"]) == 3
+
+
 def test_arbitrage_accounts_for_external_venue_fees():
     engine = SimulationEngine(SimConfig(seed=405, duration_s=10))
     arb = next(agent for agent in engine.agents if agent.kind == "arbitrageur")
