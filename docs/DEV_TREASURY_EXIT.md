@@ -336,7 +336,7 @@ Define cumulative net capital returned:
 R_t^{capital}=
 \sum_j R_{AMM,j}^{owner}
 +\sum_j Proceeds_{OTC,j}^{settled}
-+\sum_j Q_{LP,j}^{released}
++\sum_j Q_{LP,j}^{withdrawn}
 +\sum_j F_{creator,j}^{external,claimed}
 -\sum_j C_{return,j}
 \]
@@ -424,6 +424,23 @@ The fee adapter must resolve, for each confirmed transaction:
 - slot, transaction signature and fee-schedule version.
 
 The actual confirmed transaction and pool-state delta are authoritative. A theoretical rate table is a quote/forecast input, not a replacement for on-chain reconciliation.
+
+#### Creator Fee volume sensitivity
+
+If the applicable fee basis is approximated by eligible independent trade volume \(V_{eligible}\), the gross Creator Fee estimate is:
+
+\[
+F_C^{gross}\approx r_C V_{eligible}
+\]
+
+and the volume required for a target Creator Fee \(F_{target}\) is:
+
+\[
+V_{required}\approx\frac{F_{target}}{\eta r_C}
+\]
+
+For a 10 SOL target and full creator entitlement, this is approximately 3,333 SOL of eligible volume at 0.300%, 1,053 SOL at 0.950%, or 20,000 SOL at 0.050%. This is a sensitivity calculation, not a volume target. Use only genuine eligible external trades, actual fee basis and settled receipts. Dev's own sales and controlled-wallet turnover must not be presented as independent Creator Fee revenue. Holder Rewards and charity destinations are not Creator Fee income for Dev.
+
 
 ### 7.6 Fee-aware owner-level sale accounting
 
