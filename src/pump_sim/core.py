@@ -600,6 +600,7 @@ class SimulationEngine:
         self.feed_duplicates = 0
         self.total_volume_quote = 0.0
         self.total_fees_quote = 0.0
+        self.total_external_fees_quote = 0.0
         self.total_mev_risk_cost = 0.0
         self.peak_price = self.market.price
         self.max_drawdown = 0.0
@@ -795,10 +796,18 @@ class SimulationEngine:
 
         if action.kind == "remove_lp" and self.market.phase == Phase.POOL and agent.account.lp_shares > EPS:
             tokens, quote = self.market.pool.remove_liquidity(agent.account.lp_shares)  # type: ignore[union-attr]
-            lp_value = quote + tokens * self.market.price
+            withdrawal_price = self.market.price
+            lp_value = quote + tokens * withdrawal_price
             agent.account.realized_pnl += lp_value - agent.account.lp_cost_basis_quote
+            existing_tokens = agent.account.tokens
+            existing_cost = existing_tokens * agent.account.avg_entry_price
+            returned_cost = tokens * withdrawal_price
             agent.account.lp_cost_basis_quote = 0.0
             agent.account.tokens += tokens
+            if agent.account.tokens > EPS:
+                agent.account.avg_entry_price = (existing_cost + returned_cost) / agent.account.tokens
+            else:
+                agent.account.avg_entry_price = 0.0
             agent.account.quote += quote
             agent.account.lp_shares = 0.0
             return
@@ -825,6 +834,7 @@ class SimulationEngine:
                     agent.account.quote += external_proceeds - execution.amount_in
                     agent.account.realized_pnl += external_proceeds - execution.amount_in
                     agent.account.fees_paid += execution.fee + external_fee
+                    self.total_external_fees_quote += external_fee
                     trade_price = execution.amount_in / execution.amount_out
                     self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
                                               execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0))
@@ -842,7 +852,9 @@ class SimulationEngine:
                     self.market.external_quote_reserve += external_cost_used
                     agent.account.quote += execution.amount_out - external_cost_used
                     agent.account.realized_pnl += execution.amount_out - external_cost_used
-                    agent.account.fees_paid += execution.fee + external_cost_used - execution.amount_in * self.reference_price
+                    external_fee_paid = external_cost_used - execution.amount_in * self.reference_price
+                    agent.account.fees_paid += execution.fee + external_fee_paid
+                    self.total_external_fees_quote += external_fee_paid
                     gross_quote = execution.amount_out + execution.fee
                     trade_price = gross_quote / execution.amount_in
                     self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
@@ -1019,6 +1031,8 @@ class SimulationEngine:
             "candle_ohlc_mismatch_bars": ohlc_mismatches,
             "candle_unmatched_bars": len(set(true_by_start) ^ set(observed_by_start)),
             "fees_quote": self.total_fees_quote,
+            "external_fees_quote": self.total_external_fees_quote,
+            "total_fees_including_external_quote": self.total_fees_quote + self.total_external_fees_quote,
             "estimated_mev_risk_cost_quote": self.total_mev_risk_cost,
             "feed_dropped_events": self.feed_dropped,
             "feed_duplicate_events": self.feed_duplicates,
@@ -1076,7 +1090,8 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
 
     metrics = {}
     for key in ("final_price", "price_return", "max_drawdown", "trades", "true_volume_quote",
-                "fees_quote", "lp_fees_quote", "estimated_mev_risk_cost_quote",
+                "fees_quote", "external_fees_quote", "total_fees_including_external_quote",
+                "lp_fees_quote", "estimated_mev_risk_cost_quote",
                 "dev_float_share", "top_holder_share", "observed_to_true_volume_ratio",
                 "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error"):
         xs = values(key)
