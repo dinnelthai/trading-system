@@ -1,7 +1,7 @@
 # Market Making Decision Orchestrator
 
 **Document type:** Decision architecture and mathematical research specification  
-**Version:** 0.3  
+**Version:** 0.4  
 **Status:** Architecture and fixed-CPMM transition baseline defined; protocol validation, solver design and simulation validation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Primary venue:** Fixed PumpSwap CPMM pool  
@@ -105,7 +105,7 @@ For the current fixed-pool strategy, the core action set is:
 - **HOLD:** Keep current LP and inventory configuration.
 - **OBSERVE:** Wait for more reliable information; do not change capital.
 - **ADD_LP_PRO_RATA:** Add liquidity at the current pool reserve ratio.
-- **REMOVE_LP_PRO_RATA:** Withdraw a specified share proportionally, when justified by risk or capital policy.
+- **REMOVE_LP_PRO_RATA:** Withdraw a specified fraction of the account's own LP shares proportionally, when justified by risk or capital policy. In the simulator, amount is that fraction in [0,1]; zero preserves legacy full withdrawal.
 - **PAUSE_NEW_ACTIONS:** Stop new discretionary capital deployment and inventory actions.
 - **RESUME_WITH_LIMITS:** Resume only after the required health checks pass.
 - **SELL_TREASURY_AMM:** Sell an authorized unlocked tranche through a supported curve/AMM route under actual impact and reserve limits.
@@ -345,6 +345,10 @@ Recompute the combined wallet-plus-LP transition. For an ideal fee-free CPMM, if
 
 If the destination is still controlled by the same beneficial owner, classify the event as an internal transfer. Do not recognize sale proceeds, external distribution or a reduction in Dev concentration. A genuinely independent OTC buyer requires documented consideration and confirmed settlement.
 
+### Case H — Dev proposes REMOVE_LP followed by SELL_TREASURY_AMM
+
+Recompute the post-withdrawal pool reserves, remaining LP supply, Dev's new LP ownership fraction, and sell-side executable depth before evaluating the sale. Proportional withdrawal alone is not an exit. If the subsequent sale benefits from a smaller Dev LP share but breaches the post-action depth floor or marginal-impact limit, reject the sale bundle. Do not rank it higher merely because more of the swap loss is shifted to remaining LP owners. REMOVE_LP may still be considered independently as a risk or capital action; the sale must pass its own authorization and market-quality gates.
+
 ## 11. Multi-timescale authority
 
 | Layer | Authority | Orchestrator responsibility |
@@ -450,6 +454,9 @@ The orchestrator is not accepted until the simulator proves at least:
 14. **LP self-internalization:** a Dev sale into its partly owned pool reports gross swap versus net owner-level exposure reduction correctly.
 15. **Vesting and proceeds:** locked tokens cannot be sold; LP principal is not profit; OTC proceeds require confirmed independent settlement.
 16. **Exit-policy comparison:** adaptive exit is compared against no-sale and fixed-schedule baselines on matched seeds using executable terminal value.
+17. **Partial LP withdrawal:** withdrawing a fraction of an owner's LP shares preserves beneficial-owner Token/quote exposure before fees and costs, and releases cost basis pro-rata.
+18. **Sequence externality:** sell-before-remove and remove-before-sell produce correctly reconciled owner exposure, quote proceeds, price impact and remaining external LP depth.
+19. **Fee split:** sell-side pool reserve changes retain the LP fee portion and remove protocol/creator fee portions according to the active versioned fee model.
 
 ## 14. Open research after this specification
 
