@@ -842,10 +842,25 @@ class SimulationEngine:
             row["tokens"] += a.account.tokens
             row["lp_token_claim"] += lp_claim
             row["quote"] += a.account.quote
+        trait_fields = ("activity_rate", "risk_aversion", "momentum_sensitivity", "social_sensitivity", "signal_noise", "horizon_s", "order_fraction", "migration_exit_probability")
+        agent_profiles: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for kind in sorted({a.kind for a in self.agents}):
+            group = [a for a in self.agents if a.kind == kind]
+            agent_profiles[kind] = {}
+            for trait_name in trait_fields:
+                samples = [float(getattr(a.traits, trait_name)) for a in group]
+                agent_profiles[kind][trait_name] = {
+                    "mean": statistics_mean(samples),
+                    "min": min(samples, default=0.0),
+                    "max": max(samples, default=0.0),
+                }
         observed_bars = self.observed_candles.bars()
         true_bars = self.true_candles.bars()
         observed_volume = sum(c.volume_quote for c in observed_bars)
         true_volume = sum(c.volume_quote for c in true_bars)
+        market_token_inventory = self.market.curve.real_tokens if self.market.pool is None else self.market.pool.token_reserve
+        agent_token_inventory = sum(a.account.tokens for a in self.agents)
+        accounted_supply = agent_token_inventory + market_token_inventory + self.market.external_token_reserve + self.market.locked_supply
         true_by_start = {bar.start: bar for bar in true_bars}
         observed_by_start = {bar.start: bar for bar in observed_bars}
         matched_starts = sorted(set(true_by_start) & set(observed_by_start))
@@ -860,6 +875,9 @@ class SimulationEngine:
             "graduated": self.market.graduated_at is not None,
             "graduated_at_s": self.market.graduated_at,
             "duration_s": self.config.duration_s,
+            "total_supply": self.config.total_supply,
+            "accounted_token_supply": accounted_supply,
+            "token_supply_accounting_error": self.config.total_supply - accounted_supply,
             "final_price": price,
             "reference_price": self.reference_price,
             "initial_price": self.initial_price,
@@ -897,6 +915,7 @@ class SimulationEngine:
             "lp_fees_quote": self.market.pool.lp_fees_collected if self.market.pool else 0.0,
             "pool_protocol_fees_quote": self.market.pool.protocol_fees_collected if self.market.pool else 0.0,
             "participants": dict(outcomes),
+            "agent_profiles": agent_profiles,
         }
 
 
