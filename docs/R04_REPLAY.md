@@ -53,6 +53,8 @@ The canonical order key is:
 - inner_instruction_index identifies the inner instruction; -1 represents a top-level event.
 - event_index disambiguates multiple decoded events emitted from one instruction.
 
+This matters for a V3 completing buy: the curve TradeEvent, CompleteEvent, and PostCompleteBuyEvent are distinct events from the same instruction and must remain in their emitted order.
+
 block_time is retained for time-series aggregation, not used to decide transaction order. Multiple transactions can share one timestamp. Never sort by signature text or wallet address to break same-slot ties.
 
 If the data provider cannot supply transaction and instruction order, mark the sample as order-incomplete. Do not claim exact reserve replay.
@@ -88,23 +90,48 @@ One JSON object per line. Raw token and quote quantities are integer atoms; neve
 | event_type | Required payload |
 |---|---|
 | curve_swap | side, actor_wallet, token/quote amounts, curve virtual reserves before/after |
-| pool_swap | side, actor_wallet, token/quote amounts, PumpSwap reserves before/after |
+| curve_complete | completion marker emitted after the final curve leg; no reserve transition |
+| post_complete_buy | V3 synthetic pool leg, side=buy, actor_wallet, amounts and pool-to-be reserves before/after |
+| pool_swap | side, actor_wallet, token/quote amounts, effective PumpSwap reserves before/after |
 | liquidity_add | owner_wallet, position_id, pool reserves before/after, LP shares before/after |
 | liquidity_remove | owner_wallet, position_id, pool reserves before/after, LP shares before/after |
-| migration | destination pool reserves after; source real curve reserves when available |
+| migration | destination pool reserves after; optional before state and source real curve reserves |
 | state_snapshot | reserve domain and observed reserves after the indexed event |
 
 ### Amount and reserve fields
 
 - token_amount_raw: token swap amount in token atoms.
 - quote_amount_raw: gross quote notional before venue fees, in quote atoms. For a buy this is the gross swap input; for a sell it is the gross quote output before fees.
-- fee_quote_raw: separately decoded quote-denominated fee. Do not add it into quote_amount_raw a second time.
+- fee_quote_raw: total unique quote-denominated fee for the event. Do not add it into quote_amount_raw a second time.
+- Fee components may be supplied separately as lp_fee_quote_raw, protocol_fee_quote_raw, creator_fee_quote_raw, buyback_fee_quote_raw, cashback_quote_raw, and holder_rewards_quote_raw. Some components can be subcomponents of another fee (for example, buyback can be part of protocol fee); never sum overlapping fields to derive total fees.
 - base_reserve_before_raw, quote_reserve_before_raw, base_reserve_after_raw, quote_reserve_after_raw: exact pricing reserves for the event's reserve_domain.
-- For curve_swap, the base/quote reserve fields represent virtual curve reserves. Optional real_token_reserve_* and real_quote_reserve_* fields carry the actual curve token inventory and quote account balance.
-- For pool events, reserve fields represent the actual pool token and quote reserves after the protocol's LP/protocol fee treatment.
-- lp_shares_before_raw and lp_shares_after_raw are the position's exact LP share balance, not total pool supply.
+- For curve_swap, base/quote reserve fields represent virtual curve reserves. Optional real_token_reserve_* and real_quote_reserve_* fields carry actual curve inventory and quote account balance.
+- For PumpSwap, quote_reserve_* always means **effective quote reserves**, not the raw quote vault balance. Preserve pool_quote_vault_before_raw / pool_quote_vault_after_raw and signed pool_virtual_quote_reserve_before_raw / pool_virtual_quote_reserve_after_raw separately. Validate effective quote = quote vault + signed virtual quote reserve at each supplied state.
+- PumpSwap virtual_quote_reserves is a signed i128 and may be negative. Effective quote reserves are guaranteed nonnegative by the program. Do not parse the virtual field as u64 or silently clamp it.
+- lp_shares_before_raw and lp_shares_after_raw are the position's exact LP token balance, not total pool supply.
 - source_base_reserve_raw and source_quote_reserve_raw on migration represent source real curve reserves, not virtual reserves.
 - participant_type is optional and should only be populated from independently verified labels.
+
+### Pump V3 and PumpSwap V2 event handling
+
+The Pump bonding-curve program and PumpSwap AMM have separate program IDs and versioned instruction families. Preserve instruction names and decoder version in the raw archive. V2 and V3 instructions can coexist with legacy instructions.
+
+For a V3 completing buy, normalize the emitted sequence separately:
+1. TradeEvent as curve_swap for the curve portion.
+2. CompleteEvent as curve_complete.
+3. PostCompleteBuyEvent as post_complete_buy for the pool-to-be portion.
+4. The later migration event initializes or confirms the destination pool.
+
+Do not combine the two buy legs into one curve swap. The synthetic pool leg is not a post-graduation PumpSwap trade.
+
+For PumpSwap V2, protocol and creator fees can remain in the quote vault while being excluded from pricing via signed virtual quote reserves. The replay's effective quote reserve must therefore be derived from both fields. Fee configuration and instruction version must be captured at the event's slot; do not assume the current fee schedule applies retroactively.
+
+Official protocol references:
+- [Pump program and Bonding Curve](https://github.com/pump-fun/pump-public-docs/blob/main/docs/PUMP_PROGRAM_README.md)
+- [Bonding Curve V3](https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/TRADE_V3.md)
+- [PumpSwap program](https://github.com/pump-fun/pump-public-docs/blob/main/docs/PUMP_SWAP_README.md)
+- [PumpSwap V2](https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/PUMP_SWAP_TRADE_V2.md)
+- [Negative virtual quote reserves](https://github.com/pump-fun/pump-public-docs/blob/main/docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md)
 
 All raw amount fields are integer strings or JSON integers. Decimal floats are rejected. This prevents precision loss in reserve comparisons.
 
@@ -169,6 +196,8 @@ A trades-only export is sufficient for descriptive swap statistics, but not for 
 - [x] LP position and reserve continuity.
 - [x] Snapshot drift reporting.
 - [x] Execution price / spot / marginal impact separation.
+- [x] Pump V3 completion marker and synthetic pool-leg ordering.
+- [x] Signed PumpSwap virtual quote reserve / effective quote reserve validation.
 - [ ] Real archive sample and decoder completeness proof.
 
 ### R04.2 — Holder ledger and participant attribution
