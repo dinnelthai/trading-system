@@ -81,7 +81,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
-- [R04 deterministic on-chain event replay](docs/R04_REPLAY.md)
+- [Technical R04 replay and calibration](docs/R04_REPLAY.md)
 - [Solana raw archive export and decoder gate](docs/SOLANA_ARCHIVE.md)
 
 The simulator reports distributions, participant-level outcomes, token and LP concentration, fee-aware pool depth, liquidity add/remove events, fees, drawdown, graduation, execution slippage, and true-versus-observed candle differences. Set `record_pool_event_trace=true` to include the detailed pool-state event trace in a run summary. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
