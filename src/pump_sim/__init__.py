@@ -22,6 +22,15 @@ from .market_quality import (
     trade_markout,
 )
 from .routing import RouteDecision, RouteIntent, VenueQuote, choose_route
+from .orchestrator import (
+    Action,
+    Decision,
+    DecisionContext,
+    DecisionHorizon,
+    HysteresisLatch,
+    LifecycleState,
+    decide,
+)
 from .pumpswap_adapter import PumpSwapPoolState, PumpSwapStateAdapter
 
 __all__ = [
@@ -51,4 +60,11 @@ __all__ = [
     "RouteIntent",
     "VenueQuote",
     "choose_route",
+    "Action",
+    "Decision",
+    "DecisionContext",
+    "DecisionHorizon",
+    "HysteresisLatch",
+    "LifecycleState",
+    "decide",
 ]
