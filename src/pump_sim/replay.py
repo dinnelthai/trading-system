@@ -123,6 +123,8 @@ class NormalizedEvent:
     owner_wallet: str = ""
     position_id: str = ""
     participant_type: str = ""
+    route_id: str = ""
+    hop_index: Optional[int] = None
     side: str = ""
     token_amount_raw: int = 0
     quote_amount_raw: int = 0
@@ -232,6 +234,8 @@ class NormalizedEvent:
             owner_wallet=str(row.get("owner_wallet") or "").strip(),
             position_id=str(row.get("position_id") or "").strip(),
             participant_type=str(row.get("participant_type") or "").strip().lower(),
+            route_id=str(row.get("route_id") or "").strip(),
+            hop_index=_integer(row, "hop_index", line_number),
             side=str(row.get("side") or "").strip().lower(),
             token_amount_raw=_integer(row, "token_amount_raw", line_number, default=0),  # type: ignore[arg-type]
             quote_amount_raw=_integer(row, "quote_amount_raw", line_number, default=0),  # type: ignore[arg-type]
@@ -282,6 +286,10 @@ class NormalizedEvent:
             raise ValueError(f"event row {line_number}: raw amounts and reserves must be nonnegative")
         if event.participant_type and event.participant_type not in VALID_ROLES:
             raise ValueError(f"event row {line_number}: unknown participant_type {event.participant_type!r}")
+        if event.hop_index is not None and event.hop_index < 0:
+            raise ValueError(f"event row {line_number}: hop_index must be nonnegative")
+        if bool(event.route_id) != (event.hop_index is not None):
+            raise ValueError(f"event row {line_number}: route_id and hop_index must be supplied together")
 
         if event.event_type in SWAP_EVENT_TYPES:
             if event.side not in {"buy", "sell"}:
@@ -477,6 +485,7 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
     liquidity_price_changes = {"add": [], "remove": []}
     real_curve_states: Dict[str, Tuple[int, int]] = {}
     migration_count = 0
+    route_hops: Dict[str, set[int]] = defaultdict(set)
     fee_quote_total = 0.0
     volume_quote = 0.0
     volume_token = 0.0
@@ -708,6 +717,9 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                 })
             real_curve_states[event.reserve_domain] = real_after
 
+        if event.route_id:
+            route_hops[event.route_id].add(int(event.hop_index))
+
         if event.event_type in SWAP_EVENT_TYPES:
             execution_price = event.quote_amount / event.token_amount
             if price_before is not None and price_before > 0:
@@ -816,6 +828,8 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
         },
         "migration_count": migration_count,
         "curve_complete_count": curve_complete_count,
+        "multi_hop_route_count": len(route_hops),
+        "multi_hop_hop_count": sum(len(hops) for hops in route_hops.values()),
         "final_reserves": final_states,
         "snapshot_comparisons": snapshot_comparisons,
         "reserve_continuity": {
