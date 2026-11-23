@@ -359,7 +359,7 @@ Treat MEV as a user-execution harm and risk-budget dimension. Record observable 
 
 ### 14.1 Canonical event identity
 
-A confirmed swap event must be uniquely identified by chain, transaction signature, instruction index and event/log index. Handle finality, reorgs, duplicate delivery and parser-version changes explicitly.
+A swap event is uniquely identified by chain, transaction signature, instruction index and event/log index. The implemented [Canonical Market Event Ledger](MARKET_EVENT_LEDGER.md) deduplicates these identities, supports pending → confirmed → finalized progression and orphaning, and rejects conflicting payloads. Its default accepted-volume threshold is FINALIZED; CONFIRMED can be selected explicitly.
 
 A true swap record includes:
 
@@ -385,7 +385,7 @@ Exclude:
 - internal accounting movements;
 - unconfirmed or orphaned events.
 
-True OHLCV is built from confirmed swap executions. Candle price is swap VWAP, not post-swap marginal spot. Buy/sell quote volume and counts are reported separately. The observed feed is a separate projection with explicit delay, drop, duplicate and completeness diagnostics.
+True OHLCV is built from accepted unique swap executions. The event contract requires an explicit quote-notional basis (POOL_GROSS, USER_PAID or USER_RECEIVED); different bases are never mixed. Candle price is execution quote notional divided by base amount, not post-swap marginal spot. Buy/sell quote volume and counts are reported separately. The observed feed is a separate projection with explicit delay, drop, duplicate and completeness diagnostics. Raw transaction decoding, RPC ingestion and decoder-completeness proof remain open.
 
 ### 14.3 Beneficial-owner attribution
 
