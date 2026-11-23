@@ -66,8 +66,8 @@ def test_explicit_migration_residual_is_visible_as_unallocated_locked_supply():
 
     assert ledger.dev_unlocked_tokens == pytest.approx(50)
     assert ledger.dev_locked_tokens == pytest.approx(50)
-    assert ledger.unallocated_locked_tokens == pytest.approx(50)
-    assert ledger.total_locked_tokens == pytest.approx(200)
+    assert ledger.unallocated_locked_tokens == pytest.approx(100)
+    assert ledger.total_locked_tokens == pytest.approx(250)
     assert ledger.accounted_tokens == pytest.approx(1_000)
 
 
