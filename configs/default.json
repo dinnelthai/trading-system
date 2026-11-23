@@ -1,7 +1,7 @@
 {
   "seed": 42,
   "duration_s": 1800,
-  "step_s": 1.0,
+  "step_s": 1,
   "block_interval_s": 0.4,
   "candle_interval_s": 60,
   "total_supply": 1000000000,
@@ -16,7 +16,7 @@
   "curve_fee_bps": 100,
   "pool_fee_bps": 30,
   "pool_lp_fee_share": 0.7,
-  "initial_lp_lock_fraction": 1.0,
+  "initial_lp_lock_fraction": 1,
   "dev_lp_quote_budget": 0,
   "dev_vesting_start_s": 3600,
   "dev_vesting_interval_s": 3600,
@@ -26,7 +26,7 @@
   "external_depth_quote": 50,
   "external_initial_token_reserve": 0,
   "external_initial_quote_reserve": 50,
-  "initial_capital_scale": 1.0,
+  "initial_capital_scale": 1,
   "initial_capital_dispersion": 0.55,
   "n_snipers": 12,
   "n_kols": 3,
@@ -39,5 +39,12 @@
   "feed_duplicate_probability": 0.005,
   "feed_mean_latency_s": 0.8,
   "mev_base_probability": 0.04,
-  "mev_max_risk_bps": 100
+  "mev_max_risk_bps": 100,
+  "curve_creator_fee_bps": 0,
+  "curve_buyback_fee_bps": 0,
+  "curve_retain_fees": true,
+  "curve_synthetic_migration": true,
+  "curve_fee_tiers": [],
+  "curve_depth_impact_bps": 500,
+  "default_slippage_tolerance_bps": 500
 }

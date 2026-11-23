@@ -3,12 +3,29 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
+import copy
 import heapq
 import math
 import random
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 
 from .tokenomics import derive_initial_supply_allocation, dev_exposure_metrics, holder_concentration_metrics
+from .curve_math import (
+    constant_product_buy_depth_quote,
+    constant_product_buy_net_quote,
+    constant_product_buy_token_out,
+    constant_product_sell_depth_quote,
+    curve_buy_depth_quote,
+    curve_buy_net_quote,
+    curve_buy_token_out,
+    curve_market_cap_quote,
+    curve_sell_depth_quote,
+    curve_sell_gross_quote,
+    fees_on_net_quote,
+    gross_quote_for_net,
+    net_quote_from_spendable,
+    select_curve_fee_rates,
+)
 
 
 EPS = 1e-12
@@ -38,6 +55,13 @@ class SimConfig:
     graduation_quote_reserve: float = 85.0
     pool_migration_fee_quote: float = 0.015000001
     curve_fee_bps: float = 100.0
+    curve_creator_fee_bps: float = 0.0
+    curve_buyback_fee_bps: float = 0.0
+    curve_retain_fees: bool = True
+    curve_synthetic_migration: bool = True
+    curve_fee_tiers: List[Dict[str, float]] = field(default_factory=list)
+    curve_depth_impact_bps: float = 500.0
+    default_slippage_tolerance_bps: float = 500.0
     pool_fee_bps: float = 30.0
     pool_lp_fee_share: float = 0.70
     initial_lp_lock_fraction: float = 1.0
@@ -76,6 +100,8 @@ class SimConfig:
             raise ValueError("block_interval_s and candle_interval_s must be positive")
         if self.curve_virtual_token_reserve <= 0 or self.curve_virtual_quote_reserve <= 0:
             raise ValueError("curve virtual reserves must be positive")
+        if self.curve_real_token_reserve >= self.curve_virtual_token_reserve:
+            raise ValueError("curve_real_token_reserve must be below virtual token reserves")
         if self.graduation_quote_reserve <= 0 or self.external_depth_quote <= 0:
             raise ValueError("expected graduation quote and external depth must be positive")
         if self.initial_capital_scale <= 0 or self.initial_capital_dispersion < 0:
@@ -92,6 +118,25 @@ class SimConfig:
             raise ValueError("agent population counts must be nonnegative")
         if not 0 <= self.external_fee_bps < 10_000:
             raise ValueError("external_fee_bps must be in [0, 10000)")
+        if not 0 <= self.curve_fee_bps < 10_000 or not 0 <= self.curve_creator_fee_bps < 10_000:
+            raise ValueError("curve protocol and creator fees must be in [0, 10000)")
+        if not 0 <= self.curve_buyback_fee_bps <= self.curve_fee_bps:
+            raise ValueError("curve buyback fee must be a component of protocol fee")
+        if self.curve_fee_bps + self.curve_creator_fee_bps >= 10_000:
+            raise ValueError("combined curve fees must be below 10000 bps")
+        if not 0 < self.curve_depth_impact_bps <= 5_000:
+            raise ValueError("curve_depth_impact_bps must be in (0, 5000]")
+        if not 0 <= self.default_slippage_tolerance_bps < 10_000:
+            raise ValueError("default_slippage_tolerance_bps must be in [0, 10000)")
+        for tier in self.curve_fee_tiers:
+            threshold = float(tier["market_cap_quote_threshold"])
+            protocol_bps = float(tier["protocol_fee_bps"])
+            creator_bps = float(tier.get("creator_fee_bps", 0.0))
+            buyback_bps = float(tier.get("buyback_fee_bps", 0.0))
+            if threshold < 0 or protocol_bps < 0 or creator_bps < 0 or buyback_bps < 0:
+                raise ValueError("curve fee tier values must be nonnegative")
+            if protocol_bps + creator_bps >= 10_000 or buyback_bps > protocol_bps:
+                raise ValueError("invalid curve fee tier rates")
         if not 0 <= self.mev_base_probability <= 1:
             raise ValueError("mev_base_probability must be in [0, 1]")
         if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.external_initial_token_reserve > self.total_supply:
@@ -184,6 +229,9 @@ class Action:
     amount: float = 0.0
     sentiment_delta: float = 0.0
     attention_delta: float = 0.0
+    quoted_amount_out: Optional[float] = None
+    min_amount_out: Optional[float] = None
+    arrival_time: Optional[float] = None
 
 
 @dataclass
@@ -191,6 +239,14 @@ class Execution:
     amount_in: float
     amount_out: float
     fee: float
+    protocol_fee: float = 0.0
+    creator_fee: float = 0.0
+    buyback_fee: float = 0.0
+    curve_quote_reserve_in: float = 0.0
+    curve_gross_quote_in: float = 0.0
+    synthetic_pool_quote_reserve_in: float = 0.0
+    synthetic_pool_gross_quote_in: float = 0.0
+    synthetic_pool_token_out: float = 0.0
 
 
 @dataclass
@@ -205,6 +261,12 @@ class Trade:
     price: float
     fee_quote: float
     mev_risk_cost_quote: float
+    curve_quote_amount: float = 0.0
+    synthetic_pool_quote_amount: float = 0.0
+    synthetic_pool_token_amount: float = 0.0
+    spot_price_before: float = 0.0
+    spot_price_after: float = 0.0
+    price_impact_bps: float = 0.0
 
 
 @dataclass
@@ -261,59 +323,286 @@ class CandleBuilder:
 
 
 class BondingCurve:
-    def __init__(self, virtual_tokens: float, virtual_quote: float, real_tokens: float, fee_bps: float, migration_tokens: float = 0.0):
-        self.virtual_tokens = virtual_tokens
-        self.virtual_quote = virtual_quote
-        self.real_tokens = real_tokens
-        self.token_account_balance = real_tokens + migration_tokens
+    def __init__(
+        self,
+        virtual_tokens: float,
+        virtual_quote: float,
+        real_tokens: float,
+        fee_bps: float,
+        migration_tokens: float = 0.0,
+        creator_fee_bps: float = 0.0,
+        buyback_fee_bps: float = 0.0,
+        total_supply: float = 1_000_000_000.0,
+        fee_tiers: Optional[List[Dict[str, float]]] = None,
+        retain_fees: bool = True,
+        synthetic_migration: bool = True,
+        migration_fee_quote: float = 0.0,
+    ):
+        self.virtual_tokens = float(virtual_tokens)
+        self.virtual_quote = float(virtual_quote)
+        self.real_tokens = float(real_tokens)
+        self.initial_real_tokens = float(real_tokens)
+        self.token_account_balance = float(real_tokens + migration_tokens)
         self.real_quote = 0.0
-        self.fee_rate = fee_bps / 10_000.0
+        self.protocol_fee_bps = float(fee_bps)
+        self.creator_fee_bps = float(creator_fee_bps)
+        self.buyback_fee_bps = float(buyback_fee_bps)
+        self.total_supply = float(total_supply)
+        self.fee_tiers = list(fee_tiers or [])
+        self.retain_fees = bool(retain_fees)
+        self.synthetic_migration = bool(synthetic_migration)
+        self.migration_fee_quote = float(migration_fee_quote)
         self.fees_collected = 0.0
+        self.protocol_fees_pending = 0.0
+        self.creator_fees_pending = 0.0
+        self.protocol_fees_paid = 0.0
+        self.creator_fees_paid = 0.0
+        self.buyback_fees_paid = 0.0
+        self.post_complete_base_out = 0.0
+        self.post_complete_quote_in = 0.0
+        self.complete = False
+        self.migrated = False
 
     @property
     def price(self) -> float:
         return self.virtual_quote / max(self.virtual_tokens, EPS)
 
-    def buy(self, quote_in: float) -> Execution:
-        if quote_in <= 0 or self.real_tokens <= EPS:
+    @property
+    def fee_rate(self) -> float:
+        return self.fee_rates().total_rate
+
+    @property
+    def market_cap_quote(self) -> float:
+        return curve_market_cap_quote(self.virtual_tokens, self.virtual_quote, self.total_supply)
+
+    @property
+    def fee_vault_quote(self) -> float:
+        return self.protocol_fees_pending + self.creator_fees_pending
+
+    @property
+    def account_quote_balance(self) -> float:
+        return self.real_quote + self.fee_vault_quote
+
+    @property
+    def fees_paid_out_quote(self) -> float:
+        return self.protocol_fees_paid + self.creator_fees_paid + self.buyback_fees_paid
+
+    def fee_rates(self):
+        return select_curve_fee_rates(
+            market_cap_quote=self.market_cap_quote,
+            fallback_protocol_fee_bps=self.protocol_fee_bps,
+            fallback_creator_fee_bps=self.creator_fee_bps,
+            fallback_buyback_fee_bps=self.buyback_fee_bps,
+            fee_tiers=self.fee_tiers,
+        )
+
+    def _book_fees(self, fee_base_quote: float, rates) -> Tuple[float, float, float]:
+        protocol_fee, creator_fee, buyback_fee = fees_on_net_quote(fee_base_quote, rates)
+        self.fees_collected += protocol_fee + creator_fee
+        if self.retain_fees:
+            self.protocol_fees_pending += protocol_fee - buyback_fee
+            self.creator_fees_pending += creator_fee
+        else:
+            self.protocol_fees_paid += protocol_fee - buyback_fee
+            self.creator_fees_paid += creator_fee
+        self.buyback_fees_paid += buyback_fee
+        return protocol_fee, creator_fee, buyback_fee
+
+    def _apply_curve_buy_leg(self, net_quote: float, token_out: float, rates) -> Tuple[float, float, float]:
+        fees = self._book_fees(net_quote, rates)
+        self.virtual_tokens -= token_out
+        self.virtual_quote += net_quote
+        self.real_tokens = max(0.0, self.real_tokens - token_out)
+        self.token_account_balance -= token_out
+        self.real_quote += net_quote
+        if self.real_tokens <= EPS:
+            self.real_tokens = 0.0
+            self.complete = True
+        return fees
+
+    def _apply_synthetic_pool_buy_leg(self, net_quote: float, token_out: float, rates) -> Tuple[float, float, float]:
+        fees = self._book_fees(net_quote, rates)
+        self.token_account_balance -= token_out
+        self.post_complete_base_out += token_out
+        self.post_complete_quote_in += net_quote
+        return fees
+
+    def quote_buy_exact_tokens(self, token_out: float, allow_synthetic_migration: Optional[bool] = None) -> float:
+        if token_out <= 0 or self.complete or self.real_tokens <= EPS:
+            return 0.0
+        synthetic = self.synthetic_migration if allow_synthetic_migration is None else allow_synthetic_migration
+        curve_tokens = min(token_out, self.real_tokens)
+        curve_rates = self.fee_rates()
+        curve_net = curve_buy_net_quote(self.virtual_tokens, self.virtual_quote, curve_tokens)
+        total_gross = gross_quote_for_net(curve_net, curve_rates)
+        extra_tokens = token_out - curve_tokens
+        if extra_tokens <= EPS:
+            return total_gross
+        if not synthetic:
+            raise ValueError("requested token amount exceeds remaining curve inventory")
+        post_curve_tokens = self.virtual_tokens - curve_tokens
+        post_curve_quote = self.virtual_quote + curve_net
+        pool_base = self.token_account_balance - curve_tokens
+        pool_quote = self.real_quote + curve_net - self.migration_fee_quote
+        if pool_base <= EPS or pool_quote <= EPS or extra_tokens >= pool_base:
+            raise ValueError("synthetic migration pool cannot satisfy requested token amount")
+        pool_rates = select_curve_fee_rates(
+            market_cap_quote=curve_market_cap_quote(post_curve_tokens, post_curve_quote, self.total_supply),
+            fallback_protocol_fee_bps=self.protocol_fee_bps,
+            fallback_creator_fee_bps=self.creator_fee_bps,
+            fallback_buyback_fee_bps=self.buyback_fee_bps,
+            fee_tiers=self.fee_tiers,
+        )
+        pool_net = constant_product_buy_net_quote(pool_base, pool_quote, extra_tokens)
+        return total_gross + gross_quote_for_net(pool_net, pool_rates)
+
+    def buy_exact_tokens(
+        self,
+        token_out: float,
+        max_quote_in: Optional[float] = None,
+        allow_synthetic_migration: Optional[bool] = None,
+    ) -> Execution:
+        required = self.quote_buy_exact_tokens(token_out, allow_synthetic_migration)
+        if required <= EPS or (max_quote_in is not None and required > max_quote_in + EPS):
             return Execution(0.0, 0.0, 0.0)
-        net = quote_in * (1.0 - self.fee_rate)
-        k = self.virtual_tokens * self.virtual_quote
-        token_out = self.virtual_tokens - k / (self.virtual_quote + net)
-        gross_used = quote_in
-        fee = quote_in - net
-        if token_out > self.real_tokens:
-            token_out = self.real_tokens
-            net = self.virtual_quote * token_out / max(self.virtual_tokens - token_out, EPS)
-            gross_used = net / max(1.0 - self.fee_rate, EPS)
-            fee = gross_used - net
+        return self.buy(required, allow_synthetic_migration)
+
+    def preview_buy(self, quote_in: float, allow_synthetic_migration: Optional[bool] = None) -> float:
+        preview = copy.copy(self)
+        return preview.buy(quote_in, allow_synthetic_migration).amount_out
+
+    def preview_sell(self, token_in: float) -> float:
+        preview = copy.copy(self)
+        return preview.sell(token_in).amount_out
+
+    def buy(self, quote_in: float, allow_synthetic_migration: Optional[bool] = None) -> Execution:
+        synthetic = self.synthetic_migration if allow_synthetic_migration is None else allow_synthetic_migration
+        if quote_in <= 0 or self.real_tokens <= EPS or self.complete:
+            return Execution(0.0, 0.0, 0.0)
+
+        curve_rates = self.fee_rates()
+        remaining_curve_tokens = self.real_tokens
+        curve_net_required = curve_buy_net_quote(
+            self.virtual_tokens, self.virtual_quote, remaining_curve_tokens
+        )
+        curve_gross_required = gross_quote_for_net(curve_net_required, curve_rates)
+
+        # V3-style synthetic migration: the completing buy first exhausts the
+        # curve, then spends any remaining budget against the pool-to-be.
+        if synthetic and quote_in + EPS >= curve_gross_required:
+            curve_protocol, curve_creator, curve_buyback = self._apply_curve_buy_leg(
+                curve_net_required, remaining_curve_tokens, curve_rates
+            )
+            gross_used = curve_gross_required
+            total_protocol = curve_protocol
+            total_creator = curve_creator
+            total_buyback = curve_buyback
+            total_fee = curve_protocol + curve_creator
+            pool_net = 0.0
+            pool_gross = 0.0
+            pool_token_out = 0.0
+            remaining_budget = max(0.0, quote_in - curve_gross_required)
+
+            if remaining_budget > EPS:
+                pool_rates = self.fee_rates()
+                pool_base = self.token_account_balance
+                pool_quote = max(0.0, self.real_quote - self.migration_fee_quote)
+                pool_net = net_quote_from_spendable(remaining_budget, pool_rates)
+                if pool_base > EPS and pool_quote > EPS and pool_net > EPS:
+                    pool_token_out = constant_product_buy_token_out(pool_base, pool_quote, pool_net)
+                    if pool_token_out > EPS and pool_token_out < pool_base:
+                        pool_gross = gross_quote_for_net(pool_net, pool_rates)
+                        protocol, creator, buyback = self._apply_synthetic_pool_buy_leg(
+                            pool_net, pool_token_out, pool_rates
+                        )
+                        total_protocol += protocol
+                        total_creator += creator
+                        total_buyback += buyback
+                        total_fee += protocol + creator
+                        gross_used += pool_gross
+                    else:
+                        pool_net = 0.0
+                        pool_token_out = 0.0
+
+            return Execution(
+                gross_used,
+                remaining_curve_tokens + pool_token_out,
+                total_fee,
+                total_protocol,
+                total_creator,
+                total_buyback,
+                curve_net_required,
+                curve_gross_required,
+                pool_net,
+                pool_gross,
+                pool_token_out,
+            )
+
+        # Legacy/partial-fill path, or a V3 buy that does not yet complete the curve.
+        net_budget = net_quote_from_spendable(quote_in, curve_rates)
+        token_out = min(
+            remaining_curve_tokens,
+            curve_buy_token_out(self.virtual_tokens, self.virtual_quote, net_budget),
+        )
+        if token_out >= remaining_curve_tokens - EPS:
+            token_out = remaining_curve_tokens
+            net_used = curve_net_required
+        else:
+            net_used = net_budget
+        gross_used = gross_quote_for_net(net_used, curve_rates)
         if token_out <= EPS or gross_used <= EPS:
             return Execution(0.0, 0.0, 0.0)
-        self.virtual_tokens -= token_out
-        self.virtual_quote += net
-        self.real_tokens -= token_out
-        self.token_account_balance -= token_out
-        self.real_quote += net
-        self.fees_collected += fee
-        return Execution(gross_used, token_out, fee)
+        protocol, creator, buyback = self._apply_curve_buy_leg(net_used, token_out, curve_rates)
+        return Execution(
+            gross_used,
+            token_out,
+            protocol + creator,
+            protocol,
+            creator,
+            buyback,
+            net_used,
+            gross_used,
+        )
 
     def sell(self, token_in: float) -> Execution:
-        if token_in <= 0 or self.real_quote <= EPS:
+        if token_in <= 0 or self.real_quote <= EPS or self.complete:
             return Execution(0.0, 0.0, 0.0)
-        max_tokens = self.real_quote * self.virtual_tokens / max(self.virtual_quote - self.real_quote, EPS)
+        denominator = self.virtual_quote - self.real_quote
+        if denominator <= EPS:
+            return Execution(0.0, 0.0, 0.0)
+        max_tokens = self.real_quote * self.virtual_tokens / denominator
         token_used = min(token_in, max_tokens)
         if token_used <= EPS:
             return Execution(0.0, 0.0, 0.0)
-        gross_quote = self.virtual_quote * token_used / (self.virtual_tokens + token_used)
-        fee = gross_quote * self.fee_rate
-        net_quote = gross_quote - fee
+        gross_quote = curve_sell_gross_quote(self.virtual_tokens, self.virtual_quote, token_used)
+        rates = self.fee_rates()
+        protocol, creator, buyback = self._book_fees(gross_quote, rates)
+        net_quote = gross_quote - protocol - creator
         self.virtual_tokens += token_used
         self.virtual_quote -= gross_quote
         self.real_tokens += token_used
         self.token_account_balance += token_used
         self.real_quote -= gross_quote
-        self.fees_collected += fee
-        return Execution(token_used, net_quote, fee)
+        if self.real_quote < EPS:
+            self.real_quote = 0.0
+        return Execution(
+            token_used,
+            net_quote,
+            protocol + creator,
+            protocol,
+            creator,
+            buyback,
+        )
+
+    def buy_depth_quote(self, price_impact: float) -> float:
+        return curve_buy_depth_quote(
+            self.virtual_tokens, self.virtual_quote, self.real_tokens, price_impact
+        )
+
+    def sell_depth_quote(self, price_impact: float) -> float:
+        return curve_sell_depth_quote(
+            self.virtual_tokens, self.virtual_quote, self.real_quote, price_impact
+        )
 
 
 class ConstantProductPool:
@@ -503,12 +792,22 @@ class Market:
             config.curve_real_token_reserve,
             config.curve_fee_bps,
             migration_tokens,
+            creator_fee_bps=config.curve_creator_fee_bps,
+            buyback_fee_bps=config.curve_buyback_fee_bps,
+            total_supply=config.total_supply,
+            fee_tiers=config.curve_fee_tiers,
+            retain_fees=config.curve_retain_fees,
+            synthetic_migration=config.curve_synthetic_migration,
+            migration_fee_quote=config.pool_migration_fee_quote,
         )
         self.pool: Optional[ConstantProductPool] = None
         self.initial_lp_locked_shares = 0.0
         self.migration_price_before: Optional[float] = None
         self.migration_price_after: Optional[float] = None
         self.migration_price_gap_bps: Optional[float] = None
+        self.curve_terminal_price: Optional[float] = None
+        self.curve_quote_reserve_at_migration: Optional[float] = None
+        self.migration_fee_paid_quote = 0.0
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
         self.external_token_reserve = config.external_initial_token_reserve
@@ -519,42 +818,43 @@ class Market:
     def price(self) -> float:
         return self.curve.price if self.phase == Phase.CURVE else self.pool.price  # type: ignore[union-attr]
 
+    def depth_quote_for_side(self, side: str) -> float:
+        impact = self.config.curve_depth_impact_bps / 10_000.0
+        if self.phase == Phase.CURVE:
+            if side == "sell":
+                return self.curve.sell_depth_quote(impact)
+            return self.curve.buy_depth_quote(impact)
+        if self.pool is None:
+            return 0.0
+        if side == "sell":
+            return constant_product_sell_depth_quote(self.pool.quote_reserve, impact)
+        return constant_product_buy_depth_quote(self.pool.quote_reserve, impact)
+
     @property
     def depth_quote(self) -> float:
-        if self.phase == Phase.CURVE:
-            return max(0.1, self.curve.virtual_quote * 0.10)
-        return max(0.1, self.pool.quote_reserve * 0.10)  # type: ignore[union-attr]
+        return self.depth_quote_for_side("buy")
 
     def preview_buy(self, quote_in: float) -> float:
         if quote_in <= 0:
             return 0.0
         if self.phase == Phase.CURVE:
-            if self.curve.real_tokens <= EPS:
-                return 0.0
-            net = quote_in * (1.0 - self.curve.fee_rate)
-            k = self.curve.virtual_tokens * self.curve.virtual_quote
-            return min(self.curve.real_tokens, self.curve.virtual_tokens - k / (self.curve.virtual_quote + net))
+            return self.curve.preview_buy(quote_in, self.config.curve_synthetic_migration)
         pool = self.pool
         if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
             return 0.0
         net = quote_in * (1.0 - pool.fee_rate)
-        return pool.token_reserve * net / (pool.quote_reserve + net)
+        return constant_product_buy_token_out(pool.token_reserve, pool.quote_reserve, net)
 
     def buy(self, quote_in: float) -> Execution:
         if self.phase == Phase.CURVE:
-            return self.curve.buy(quote_in)
+            return self.curve.buy(quote_in, self.config.curve_synthetic_migration)
         return self.pool.buy(quote_in)  # type: ignore[union-attr]
 
     def preview_sell(self, token_in: float) -> float:
         if token_in <= 0:
             return 0.0
         if self.phase == Phase.CURVE:
-            if self.curve.real_quote <= EPS:
-                return 0.0
-            max_tokens = self.curve.real_quote * self.curve.virtual_tokens / max(self.curve.virtual_quote - self.curve.real_quote, EPS)
-            used = min(token_in, max_tokens)
-            gross = self.curve.virtual_quote * used / max(self.curve.virtual_tokens + used, EPS)
-            return gross * (1.0 - self.curve.fee_rate)
+            return self.curve.preview_sell(token_in)
         pool = self.pool
         if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
             return 0.0
@@ -567,26 +867,42 @@ class Market:
         return self.pool.sell(token_in)  # type: ignore[union-attr]
 
     def maybe_migrate(self, timestamp: float) -> bool:
-        # Pump completion is driven by exhausting the real curve token inventory,
-        # not by crossing a quote-reserve threshold. The remaining token-account
-        # balance is the migration base reserve; real quote reserves fund the pool.
-        if self.phase != Phase.CURVE or self.curve.real_tokens > EPS:
+        # The curve is complete only after its real token inventory is exhausted.
+        # A V3 synthetic buy may already have consumed part of the pool-to-be.
+        if self.phase != Phase.CURVE or not self.curve.complete or self.curve.real_tokens > EPS:
             return False
         pool_tokens = self.curve.token_account_balance
-        pool_quote = self.curve.real_quote - self.config.pool_migration_fee_quote
+        curve_quote = self.curve.real_quote
+        pool_quote = curve_quote - self.config.pool_migration_fee_quote + self.curve.post_complete_quote_in
         if pool_tokens <= EPS or pool_quote <= EPS:
             return False
-        self.migration_price_before = self.curve.price
+
+        self.curve_terminal_price = self.curve.price
+        self.curve_quote_reserve_at_migration = curve_quote
+        self.migration_fee_paid_quote = self.config.pool_migration_fee_quote
+        if self.curve.post_complete_base_out > EPS:
+            # Compare migration with the synthetic pool state after the completing buy.
+            self.migration_price_before = pool_quote / pool_tokens
+        else:
+            # Legacy/curve-only completion: compare the pool opening price to terminal curve price.
+            self.migration_price_before = self.curve_terminal_price
+
         self.pool = ConstantProductPool(
             pool_tokens,
             pool_quote,
             self.config.pool_fee_bps,
             self.config.pool_lp_fee_share,
         )
+        # Reserves move to PumpSwap; pending protocol/creator fees remain on the curve
+        # and are not part of LP liquidity.
         self.curve.token_account_balance = 0.0
+        self.curve.real_quote = 0.0
+        self.curve.migrated = True
         self.initial_lp_locked_shares = self.pool.total_lp_shares * self.config.initial_lp_lock_fraction
         self.migration_price_after = self.pool.price
-        self.migration_price_gap_bps = (self.migration_price_after / max(self.migration_price_before, EPS) - 1.0) * 10_000.0
+        self.migration_price_gap_bps = (
+            self.migration_price_after / max(self.migration_price_before, EPS) - 1.0
+        ) * 10_000.0
         self.phase = Phase.POOL
         self.graduated_at = timestamp
         return True
@@ -639,6 +955,13 @@ class SimulationEngine:
         self.peak_price = self.market.price
         self.max_drawdown = 0.0
         self._migration_handled = False
+        self.orders_submitted = 0
+        self.orders_executed = 0
+        self.orders_failed = 0
+        self.slippage_reverts = 0
+        self.order_latency_sum_s = 0.0
+        self.order_latency_max_s = 0.0
+        self.order_latency_count = 0
 
     def _new_agent(self, kind: str, index: int, quote: float, tokens: float = 0.0) -> Agent:
         agent_rng = random.Random(self.seed_rng.getrandbits(64))
@@ -761,10 +1084,33 @@ class SimulationEngine:
     def _schedule(self, agent: Agent, action: Action, now: float) -> None:
         delay = agent.rng.expovariate(1.0 / max(agent.traits.latency_mean_s, 0.02))
         arrival = now + delay
+        action.arrival_time = arrival
+        if action.kind in ("buy", "sell"):
+            if action.kind == "buy":
+                input_amount = min(action.amount, agent.account.quote)
+                quoted_out = self.market.preview_buy(input_amount)
+            else:
+                input_amount = min(action.amount, agent.account.tokens)
+                quoted_out = self.market.preview_sell(input_amount)
+            tolerance_bps = agent.traits.slippage_tolerance_bps
+            if tolerance_bps <= 0:
+                tolerance_bps = self.config.default_slippage_tolerance_bps
+            action.quoted_amount_out = quoted_out
+            action.min_amount_out = quoted_out * (1.0 - tolerance_bps / 10_000.0)
+        if action.kind in ("buy", "sell", "arb_buy_local", "arb_sell_local"):
+            self.orders_submitted += 1
         block_time = math.ceil(arrival / self.config.block_interval_s) * self.config.block_interval_s
         priority = agent.rng.random()
         self.sequence += 1
         heapq.heappush(self.order_queue, (block_time, -priority, self.sequence, agent, action))
+
+    def _record_order_execution(self, action: Action, timestamp: float) -> None:
+        if action.arrival_time is not None:
+            self.orders_executed += 1
+            latency = max(0.0, timestamp - action.arrival_time)
+            self.order_latency_sum_s += latency
+            self.order_latency_max_s = max(self.order_latency_max_s, latency)
+            self.order_latency_count += 1
 
     def _schedule_activation(self, agent: Agent, now: float) -> None:
         rate = max(agent.traits.activity_rate, 1e-9)
@@ -839,6 +1185,8 @@ class SimulationEngine:
         self._migration_handled = True
 
     def _execute(self, agent: Agent, action: Action, timestamp: float) -> None:
+        spot_price_before = self.market.price
+        tracked_trade: Optional[Trade] = None
         if action.kind == "post":
             self.attention = min(20.0, self.attention + action.attention_delta)
             self.sentiment = max(-1.0, min(1.0, self.sentiment + action.sentiment_delta))
@@ -895,8 +1243,10 @@ class SimulationEngine:
                     agent.account.fees_paid += execution.fee + external_fee
                     self.total_external_fees_quote += external_fee
                     trade_price = execution.amount_in / execution.amount_out
-                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
-                                              execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0))
+                    tracked_trade = Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
+                                          execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0)
+                    self._record_trade(tracked_trade)
+                    self._record_order_execution(action, timestamp)
         elif action.kind == "arb_sell_local":
             quote_budget = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
             external_fee_rate = self.config.external_fee_bps / 10_000.0
@@ -916,16 +1266,25 @@ class SimulationEngine:
                     self.total_external_fees_quote += external_fee_paid
                     gross_quote = execution.amount_out + execution.fee
                     trade_price = gross_quote / execution.amount_in
-                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
-                                              execution.amount_in, gross_quote, trade_price, execution.fee, 0.0))
+                    tracked_trade = Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
+                                          execution.amount_in, gross_quote, trade_price, execution.fee, 0.0)
+                    self._record_trade(tracked_trade)
+                    self._record_order_execution(action, timestamp)
         elif action.kind == "buy":
             quote_in = min(action.amount, agent.account.quote)
             if quote_in <= EPS:
                 return
-            depth = self.market.depth_quote
+            expected_out = self.market.preview_buy(quote_in)
+            if action.min_amount_out is not None and expected_out + EPS < action.min_amount_out:
+                self.slippage_reverts += 1
+                self.orders_failed += 1
+                return
+            depth = self.market.depth_quote_for_side("buy")
             mev_cost = self._mev_exposure(quote_in, depth)
+            trade_phase = self.market.phase.value
             execution = self.market.buy(quote_in)
             if execution.amount_out <= EPS:
+                self.orders_failed += 1
                 return
             agent.account.quote -= execution.amount_in
             old_tokens = agent.account.tokens
@@ -938,17 +1297,33 @@ class SimulationEngine:
                 agent.account.avg_entry_price = (old_cost + execution.amount_in) / (old_tokens + execution.amount_out)
             agent.account.fees_paid += execution.fee
             price = execution.amount_in / execution.amount_out
-            trade = Trade(timestamp, agent.agent_id, agent.kind, "buy", self.market.phase.value,
-                          execution.amount_out, execution.amount_in, price, execution.fee, mev_cost)
-            self._record_trade(trade)
+            tracked_trade = Trade(
+                timestamp, agent.agent_id, agent.kind, "buy", trade_phase,
+                execution.amount_out, execution.amount_in, price, execution.fee, mev_cost,
+                curve_quote_amount=(
+                    execution.curve_gross_quote_in or execution.amount_in
+                    if trade_phase == Phase.CURVE.value else 0.0
+                ),
+                synthetic_pool_quote_amount=execution.synthetic_pool_gross_quote_in,
+                synthetic_pool_token_amount=execution.synthetic_pool_token_out,
+            )
+            self._record_trade(tracked_trade)
+            self._record_order_execution(action, timestamp)
         elif action.kind == "sell":
             token_in = min(action.amount, agent.account.tokens)
             if token_in <= EPS:
                 return
-            depth = self.market.depth_quote
+            expected_out = self.market.preview_sell(token_in)
+            if action.min_amount_out is not None and expected_out + EPS < action.min_amount_out:
+                self.slippage_reverts += 1
+                self.orders_failed += 1
+                return
+            depth = self.market.depth_quote_for_side("sell")
             mev_cost = self._mev_exposure(token_in * self.market.price, depth)
+            trade_phase = self.market.phase.value
             execution = self.market.sell(token_in)
             if execution.amount_in <= EPS or execution.amount_out <= EPS:
+                self.orders_failed += 1
                 return
             agent.account.tokens -= execution.amount_in
             agent.account.quote += execution.amount_out
@@ -959,12 +1334,22 @@ class SimulationEngine:
             agent.account.fees_paid += execution.fee
             gross_quote = execution.amount_out + execution.fee
             price = gross_quote / execution.amount_in
-            trade = Trade(timestamp, agent.agent_id, agent.kind, "sell", self.market.phase.value,
-                          execution.amount_in, gross_quote, price, execution.fee, mev_cost)
-            self._record_trade(trade)
+            tracked_trade = Trade(
+                timestamp, agent.agent_id, agent.kind, "sell", trade_phase,
+                execution.amount_in, gross_quote, price, execution.fee, mev_cost,
+                curve_quote_amount=gross_quote if trade_phase == Phase.CURVE.value else 0.0,
+            )
+            self._record_trade(tracked_trade)
+            self._record_order_execution(action, timestamp)
 
         if self.market.maybe_migrate(timestamp):
             self._handle_migration()
+        if tracked_trade is not None:
+            tracked_trade.spot_price_before = spot_price_before
+            tracked_trade.spot_price_after = self.market.price
+            tracked_trade.price_impact_bps = (
+                tracked_trade.spot_price_after / max(spot_price_before, EPS) - 1.0
+            ) * 10_000.0
 
     def run(self) -> Dict[str, object]:
         steps = int(math.ceil(self.config.duration_s / self.config.step_s))
@@ -1070,11 +1455,21 @@ class SimulationEngine:
         accounted_supply = math.fsum((agent_token_inventory, market_token_inventory, self.market.external_token_reserve, self.market.locked_supply))
         curve_trades = [trade for trade in self.trades if trade.phase == Phase.CURVE.value]
         pool_trades = [trade for trade in self.trades if trade.phase == Phase.POOL.value]
-        def flow_metrics(tape: List[Trade]) -> Dict[str, float]:
+        def flow_metrics(tape: List[Trade], curve_leg_only: bool = False) -> Dict[str, float]:
             buys = [trade for trade in tape if trade.side in ("buy", "arb_buy_local")]
             sells = [trade for trade in tape if trade.side in ("sell", "arb_sell_local")]
-            buy_volume = math.fsum(trade.quote_amount for trade in buys)
-            sell_volume = math.fsum(trade.quote_amount for trade in sells)
+            if curve_leg_only:
+                buy_volume = math.fsum(
+                    trade.curve_quote_amount if trade.curve_quote_amount > 0 else trade.quote_amount
+                    for trade in buys
+                )
+                sell_volume = math.fsum(
+                    trade.curve_quote_amount if trade.curve_quote_amount > 0 else trade.quote_amount
+                    for trade in sells
+                )
+            else:
+                buy_volume = math.fsum(trade.quote_amount for trade in buys)
+                sell_volume = math.fsum(trade.quote_amount for trade in sells)
             return {
                 "buy_trades": len(buys),
                 "sell_trades": len(sells),
@@ -1082,9 +1477,26 @@ class SimulationEngine:
                 "sell_volume_quote": sell_volume,
                 "net_quote_flow": buy_volume - sell_volume,
             }
-        curve_flow = flow_metrics(curve_trades)
+        curve_flow = flow_metrics(curve_trades, curve_leg_only=True)
         pool_flow = flow_metrics(pool_trades)
-        curve_progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS))
+        curve_progress = (
+            1.0 if self.market.graduated_at is not None
+            else max(0.0, min(1.0, 1.0 - self.market.curve.real_tokens / max(self.market.curve.initial_real_tokens, EPS)))
+        )
+        curve_quote_at_migration = (
+            self.market.curve_quote_reserve_at_migration
+            if self.market.curve_quote_reserve_at_migration is not None
+            else self.market.curve.real_quote
+        )
+        synthetic_migration_trades = [
+            trade for trade in self.trades if trade.synthetic_pool_quote_amount > EPS
+        ]
+        synthetic_migration_quote_volume = math.fsum(
+            trade.synthetic_pool_quote_amount for trade in synthetic_migration_trades
+        )
+        synthetic_migration_token_volume = math.fsum(
+            trade.synthetic_pool_token_amount for trade in synthetic_migration_trades
+        )
         true_by_start = {bar.start: bar for bar in true_bars}
         observed_by_start = {bar.start: bar for bar in observed_bars}
         matched_starts = sorted(set(true_by_start) & set(observed_by_start))
@@ -1101,6 +1513,17 @@ class SimulationEngine:
             "migration_price_before": self.market.migration_price_before,
             "migration_price_after": self.market.migration_price_after,
             "migration_price_gap_bps": self.market.migration_price_gap_bps,
+            "curve_terminal_price": self.market.curve_terminal_price,
+            "curve_market_cap_quote": self.market.curve.market_cap_quote,
+            "market_fdv_quote": self.market.price * self.config.total_supply,
+            "curve_spot_price": self.market.curve.price,
+            "curve_completion_flag": self.market.curve.complete,
+            "curve_quote_reserve_at_migration": self.market.curve_quote_reserve_at_migration,
+            "curve_quote_raise_progress": curve_quote_at_migration / max(self.config.graduation_quote_reserve, EPS),
+            "market_buy_depth_quote": self.market.depth_quote_for_side("buy"),
+            "market_sell_depth_quote": self.market.depth_quote_for_side("sell"),
+            "curve_buy_depth_quote": self.market.curve.buy_depth_quote(self.config.curve_depth_impact_bps / 10_000.0) if self.market.phase == Phase.CURVE else 0.0,
+            "curve_sell_depth_quote": self.market.curve.sell_depth_quote(self.config.curve_depth_impact_bps / 10_000.0) if self.market.phase == Phase.CURVE else 0.0,
             "duration_s": self.config.duration_s,
             "total_supply": self.config.total_supply,
             "accounted_token_supply": accounted_supply,
@@ -1115,6 +1538,16 @@ class SimulationEngine:
             "curve_real_quote_reserve": self.market.curve.real_quote,
             "curve_real_token_reserve": self.market.curve.real_tokens,
             "curve_token_account_balance": self.market.curve.token_account_balance,
+            "curve_fee_vault_quote": self.market.curve.fee_vault_quote,
+            "curve_account_quote_balance": self.market.curve.account_quote_balance,
+            "curve_protocol_fees_pending_quote": self.market.curve.protocol_fees_pending,
+            "curve_creator_fees_pending_quote": self.market.curve.creator_fees_pending,
+            "curve_protocol_fees_paid_quote": self.market.curve.protocol_fees_paid,
+            "curve_creator_fees_paid_quote": self.market.curve.creator_fees_paid,
+            "curve_buyback_fees_paid_quote": self.market.curve.buyback_fees_paid,
+            "curve_fees_paid_out_quote": self.market.curve.fees_paid_out_quote,
+            "curve_total_fees_collected_quote": self.market.curve.fees_collected,
+            "curve_selected_total_fee_bps": self.market.curve.fee_rates().total_fee_bps,
             "curve_migration_token_reserve": self.market.curve_migration_token_reserve,
             "pool_migration_fee_quote": self.config.pool_migration_fee_quote,
             "curve_progress": curve_progress,
@@ -1123,6 +1556,9 @@ class SimulationEngine:
             "curve_buy_volume_quote": curve_flow["buy_volume_quote"],
             "curve_sell_volume_quote": curve_flow["sell_volume_quote"],
             "curve_net_quote_flow": curve_flow["net_quote_flow"],
+            "synthetic_migration_trades": len(synthetic_migration_trades),
+            "synthetic_migration_quote_volume": synthetic_migration_quote_volume,
+            "synthetic_migration_token_volume": synthetic_migration_token_volume,
             "pool_buy_trades": pool_flow["buy_trades"],
             "pool_sell_trades": pool_flow["sell_trades"],
             "pool_buy_volume_quote": pool_flow["buy_volume_quote"],
@@ -1139,6 +1575,13 @@ class SimulationEngine:
             "external_fees_quote": self.total_external_fees_quote,
             "total_fees_including_external_quote": self.total_fees_quote + self.total_external_fees_quote,
             "estimated_mev_risk_cost_quote": self.total_mev_risk_cost,
+            "orders_submitted": self.orders_submitted,
+            "orders_executed": self.orders_executed,
+            "orders_failed": self.orders_failed,
+            "slippage_reverts": self.slippage_reverts,
+            "order_execution_success_rate": self.orders_executed / max(self.orders_submitted, 1),
+            "mean_order_latency_s": self.order_latency_sum_s / max(self.order_latency_count, 1),
+            "max_order_latency_s": self.order_latency_max_s,
             "feed_dropped_events": self.feed_dropped,
             "feed_duplicate_events": self.feed_duplicates,
             "true_candles": len(self.true_candles.bars()),
