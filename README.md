@@ -6,7 +6,7 @@ A stochastic agent-based research simulator for studying a token launch from bon
 
 ## Target product direction
 
-The long-term product direction is a complete **Market Making & Market Quality System**, not a standalone LP Manager. LP management is one subsystem alongside market intelligence, flow intelligence, market-quality measurement, inventory, liquidity, execution, risk, and simulation/optimization. The target architecture, objectives, constraints, and research roadmap are documented in [Market Making & Market Quality System](docs/MARKET_MAKING_MARKET_QUALITY.md).
+The long-term product direction is a complete **Market Making & Market Quality System**, not a standalone LP Manager. The core liquidity strategy uses a fixed PumpSwap CPMM pool with proportional add/remove decisions; dynamic DLMM Bin and CLMM Tick repositioning is outside the current core scope. The target architecture is documented in [Market Making & Market Quality System](docs/MARKET_MAKING_MARKET_QUALITY.md), with decision arbitration specified in [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md).
 
 This is a target-system specification, not a claim that all engines are implemented. The current repository remains a research and stress-testing simulator; live execution is outside its current scope.
 
@@ -82,6 +82,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 ## Research docs
 
 - [Market Making & Market Quality System — product direction and research specification](docs/MARKET_MAKING_MARKET_QUALITY.md)
+- [Market Making Decision Orchestrator — arbitration, hard constraints and action selection](docs/DECISION_ORCHESTRATOR.md)
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)

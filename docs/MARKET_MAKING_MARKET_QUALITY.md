@@ -34,13 +34,15 @@ A healthy market is not necessarily a low-volatility market. Genuine information
 
 ### 1.2 Explicit strategy constraints
 
-- Use spot inventory, liquidity allocation, transparent market making, and active add/remove/rebalance decisions.
+- The core deployment model is a **fixed PumpSwap CPMM pool** with initial liquidity and proportional add/remove operations. Optimize the amount of committed liquidity and the timing/size of those operations; do not make dynamic Bin/Tick repositioning a core strategy.
+- Keep spot inventory, LP claims, liquidity reserves and execution reserves in one reconciled capital ledger. LP underlying assets must not be double-counted as free inventory.
 - Do **not** introduce perpetual futures or options as inventory hedges.
 - Do not count LP deposits or withdrawals as swaps or trading volume.
 - Do not use self-trades, wash trading, fabricated volume, deceptive coordination, artificial candles, or hidden treasury activity to create a false impression of demand or market health.
 - Do not assume that an AMM LP position is equivalent to an order-book quote or a guaranteed limit order.
 - Every action must be evaluated against protocol mechanics, fees, transaction costs, inventory limits, and execution risk.
 - Keep research simulation, paper execution, and any future live execution as separate permissioned stages.
+- Other AMM venues may be observed and modeled through adapters, but dynamic DLMM Bin or CLMM Tick optimization is outside the core strategy unless a future explicit product decision changes this scope.
 
 ---
 
@@ -177,28 +179,30 @@ The engine should estimate inventory risk under price, liquidity, and flow scena
 
 ### 3.5 Liquidity Engine
 
-**Purpose:** Allocate and manage liquidity across supported AMM mechanisms.
+**Purpose:** Manage the amount of committed liquidity in a fixed pool and measure its effect on executable depth, capital use and inventory risk.
 
-Responsibilities:
+Core strategy scope:
 
-- Choose venue and pool subject to protocol support and operational risk.
-- Calculate matched deposits and expected residual wallet inventory.
-- Allocate liquidity across supported ranges/bins where the protocol permits.
-- Estimate buy/sell depth at several impact budgets.
-- Track LP share ownership, lock status, fees, and withdrawal rights.
-- Evaluate add, remove, shift, or hold decisions against inventory and risk budgets.
-- Measure capital efficiency and depth persistence.
+- PumpSwap CPMM is the primary execution and liquidity-management venue.
+- Establish the initial pool position using a pre-approved capital and inventory budget.
+- Add liquidity proportionally to the existing pool ratio; remove liquidity proportionally when an independently justified risk or capital decision requires it.
+- Decide ADD / HOLD / REMOVE from depth requirements, expected fee economics, inventory stress, capital reserves and execution costs.
+- Estimate buy/sell depth at several fee-aware impact budgets.
+- Track LP ownership, withdrawability, fees, locked/burned claims and pool accounting.
+- Do not dynamically move DLMM bins or CLMM ticks as a core strategy. Other venues may be monitored or modeled for reference, but position migration is out of scope unless explicitly re-approved.
+
+For an ideal CPMM with token reserve X, quote reserve Y and P=Y/X, a proportional deposit satisfying ΔY/ΔX=Y/X preserves the marginal spot price while increasing depth. A proportional withdrawal has the corresponding effect in reverse. Swaps, not proportional LP deposits or withdrawals, change the pool's marginal price.
 
 Protocol-specific behavior must remain separate:
 
-| Mechanism | Relevant controls | Important limitation |
+| Mechanism | Current product scope | Important limitation |
 |---|---|---|
-| PumpSwap / CPMM | Reserve size, proportional LP position, inventory and pool choice | Proportional add/remove changes depth, not the spot price; swaps move price |
-| Meteora DLMM | Bin liquidity distribution, active-bin strategy, bin rebalancing | Bin liquidity is not a guaranteed order-book limit order; price moves through bins as swaps execute |
-| Raydium CLMM | Tick range and concentrated liquidity | Range choice changes where liquidity is active and how inventory changes |
-| Orca Whirlpools | Tick range and position management | Requires protocol-specific tick, fee and position accounting |
+| PumpSwap / CPMM | Primary fixed-pool liquidity management; proportional add/remove, reserve and LP accounting | Proportional add/remove changes depth, not the spot-price ratio; swaps move price |
+| Meteora DLMM | Market observation and analytics adapter only | Bin liquidity is not a guaranteed order-book limit order |
+| Raydium CLMM | Market observation and analytics adapter only | Concentrated range behavior requires protocol-specific accounting |
+| Orca Whirlpools | Market observation and analytics adapter only | Tick and position mechanics remain venue-specific |
 
-Do not transfer one venue's reserve or fee formulas to another venue without an explicit adapter and tests.
+Do not transfer one venue's reserve, fee or execution formulas to another venue without an explicit adapter and tests.
 
 ### 3.6 Execution Engine
 
@@ -569,6 +573,8 @@ A research result is not accepted because one chart looks better. It must:
 
 **Direction locked:** Build a complete Market Making & Market Quality System, not a standalone LP Manager.
 
+**Strategy scope clarified:** Use a fixed PumpSwap CPMM pool as the core liquidity model. Optimize initial liquidity, proportional additions, proportional risk/capital withdrawals, and the Dev inventory/capital budget. Dynamic DLMM Bin and CLMM Tick repositioning is not part of the core strategy.
+
 **Existing research foundation in this repository:**
 
 - R01 tokenomics and supply accounting.
@@ -577,10 +583,13 @@ A research result is not accepted because one chart looks better. It must:
 - Technical R04 historical event replay and calibration.
 - Agent-based stochastic participant simulation.
 - Empirical calibration data contract.
+- Initial spot-only capital allocation and multi-timescale control derivations.
 
-**Not yet complete:** The unified system-state contract, market-quality engine as a standalone module, optimal capital allocator, engine orchestration, and validated policies across real historical cohorts.
+**Not yet complete:** Empirical calibration of the capital allocator, a production-grade canonical state contract, implementation of the decision orchestrator, robust scenario calibration, and validation across held-out historical cohorts.
 
-**Next workstream:** Derive and test Optimal Market-Making Capital Allocation. Begin with a constrained spot-only model that jointly allocates free inventory, LP capital, liquidity reserve and execution reserve. Do not begin live execution until accounting, replay, simulation, risk controls and paper validation pass their acceptance gates.
+**Next workstream:** Derive joint action sequencing and robust scenario evaluation for the decision orchestrator, then implement a simulator-side solver. Do not begin live execution until accounting, replay, simulation, risk controls, decision arbitration and paper validation pass their acceptance gates.
+
+**Detailed arbitration specification:** See [Decision Orchestrator](DECISION_ORCHESTRATOR.md).
 
 ---
 
@@ -593,9 +602,12 @@ A research result is not accepted because one chart looks better. It must:
 | Full lifecycle from launch through mature/stress market | Locked |
 | Shared state and centralized decision arbitration | Locked |
 | Eight engines defined by responsibility | Proposed architecture |
-| Spot inventory and dynamic liquidity are primary tools | Locked |
+| Core liquidity strategy uses a fixed PumpSwap CPMM pool | Locked |
+| LP additions and removals are proportional; no core dynamic Bin/Tick repositioning | Locked |
+| Spot inventory and liquidity capital are managed jointly | Locked |
 | Perpetual futures and options hedging are excluded | Locked |
 | Market quality is not equivalent to low volatility or smooth candles | Locked |
 | True volume must come only from genuine successful swaps | Locked |
-| Next research priority is optimal capital allocation | Locked |
+| Decision arbitration uses hard constraints, quality service targets, risk-adjusted economics and churn control | Proposed architecture |
+| Detailed orchestration specification | See DECISION_ORCHESTRATOR.md |
 
