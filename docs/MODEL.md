@@ -50,15 +50,15 @@ Agents compare this score with their own thresholds. Order sizes are random frac
 
 ### Arrival and disorder
 
-An agent activates during a step of length \(\Delta t\) with probability:
+Each agent's next wake time is drawn from an independent exponential inter-arrival process:
 
 \[
-P(\text{wake}_i)=1-e^{-\lambda_i\Delta t}
+\Delta t_i \sim \operatorname{Exponential}(\lambda_i), \qquad P(\text{wake}_i\text{ within }\Delta t)=1-e^{-\lambda_i\Delta t}
 \]
 
-where \(\lambda_i\) is its individually sampled activity rate.
+where \(\lambda_i\) is its individually sampled activity rate. The event engine processes participant activations and block settlements in timestamp order. An agent can observe trades that settled before its own wake time, rather than every participant reacting to one shared market-wide tick.
 
-Order latency is exponentially distributed. Orders settle in simulated blocks and are ordered by a random priority score. This creates asynchronous, path-dependent order flow and prevents all participants from reacting to the same tick in a fixed order.
+Order latency is exponentially distributed. Orders settle in simulated blocks and are ordered by a random priority score. Exogenous price-regime updates remain on a configurable market clock, while trader arrivals and order execution are asynchronous.
 
 ## 3. Market mechanics
 
