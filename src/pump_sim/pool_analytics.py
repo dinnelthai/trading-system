@@ -158,7 +158,7 @@ def candle_comparison_metrics(
     observed_by_start = {bar.start: bar for bar in observed_bars}
     matched = sorted(set(true_by_start) & set(observed_by_start))
 
-    def mae_bps(field: str) -> float:
+    def errors_bps(field: str) -> list[float]:
         errors = []
         for start in matched:
             truth = float(getattr(true_by_start[start], field))
@@ -167,7 +167,14 @@ def candle_comparison_metrics(
                 errors.append(abs(observed / truth - 1.0) * 10_000.0)
             else:
                 errors.append(0.0 if observed == 0 else 10_000.0)
+        return errors
+
+    def mae_bps(field: str) -> float:
+        errors = errors_bps(field)
         return math.fsum(errors) / len(errors) if errors else 0.0
+
+    def max_bps(field: str) -> float:
+        return max(errors_bps(field), default=0.0)
 
     def mae(field: str) -> float:
         errors = [
@@ -188,6 +195,10 @@ def candle_comparison_metrics(
     ]
     true_volume = math.fsum(float(bar.volume_quote) for bar in true_by_start.values())
     observed_volume = math.fsum(float(bar.volume_quote) for bar in observed_by_start.values())
+    volume_error_pct = [
+        abs(float(observed_by_start[start].volume_quote) / float(true_by_start[start].volume_quote) - 1.0) * 100.0
+        for start in matched if float(true_by_start[start].volume_quote) > 0
+    ]
     ohlc_mismatches = sum(
         1
         for start in matched
@@ -202,10 +213,15 @@ def candle_comparison_metrics(
         "candle_unmatched_bars": float(len(set(true_by_start) ^ set(observed_by_start))),
         "candle_ohlc_mismatch_bars": float(ohlc_mismatches),
         "candle_open_mae_bps": mae_bps("open"),
+        "candle_open_max_error_bps": max_bps("open"),
         "candle_high_mae_bps": mae_bps("high"),
+        "candle_high_max_error_bps": max_bps("high"),
         "candle_low_mae_bps": mae_bps("low"),
+        "candle_low_max_error_bps": max_bps("low"),
         "candle_close_mae_bps": mae_bps("close"),
+        "candle_close_max_error_bps": max_bps("close"),
         "candle_volume_mae_quote": mae("volume_quote"),
+        "candle_volume_error_mae_pct": math.fsum(volume_error_pct) / len(volume_error_pct) if volume_error_pct else 0.0,
         "candle_buy_volume_mae_quote": mae("buy_volume_quote"),
         "candle_sell_volume_mae_quote": mae("sell_volume_quote"),
         "candle_trade_count_mae": mae("trades"),
