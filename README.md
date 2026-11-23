@@ -14,6 +14,8 @@ The version-aware PumpSwap decoded-state normalization is documented in [PumpSwa
 
 The [Canonical Market Event Ledger](docs/MARKET_EVENT_LEDGER.md) adds idempotent event identity, finality-aware deduplication, true-swap volume attribution and execution-derived candles. It consumes normalized decoded events; raw Solana decoding and ingestion are still separate work.
 
+The [Market Quality Metrics Engine](docs/MARKET_QUALITY_ENGINE.md) adds independent-reference aggregation, two-sided depth balance, log basis, LP markout, sustained shock recovery, hard gates and an optional diagnostic MQS. It consumes supplied venue observations and calibrated thresholds; it does not fetch market data or execute strategy actions.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
