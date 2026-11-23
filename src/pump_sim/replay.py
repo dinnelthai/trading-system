@@ -315,21 +315,33 @@ class NormalizedEvent:
         if event.event_type == "state_snapshot":
             if event.base_reserve_after_raw is None or event.quote_reserve_after_raw is None:
                 raise ValueError(f"event row {line_number}: state_snapshot requires after reserve fields")
-        virtual_fields = (
-            event.pool_quote_vault_before_raw, event.pool_quote_vault_after_raw,
-            event.pool_virtual_quote_reserve_before_raw, event.pool_virtual_quote_reserve_after_raw,
+        before_quote_parts = (
+            event.pool_quote_vault_before_raw,
+            event.pool_virtual_quote_reserve_before_raw,
         )
-        if any(value is not None for value in virtual_fields):
-            if any(value is None for value in virtual_fields):
-                raise ValueError(f"event row {line_number}: pool quote vault and signed virtual reserve fields must be supplied as complete before/after pairs")
+        after_quote_parts = (
+            event.pool_quote_vault_after_raw,
+            event.pool_virtual_quote_reserve_after_raw,
+        )
+        if any(value is not None for value in before_quote_parts + after_quote_parts):
             if event.reserve_domain != "pump_swap_pool":
                 raise ValueError(f"event row {line_number}: pool quote vault fields require pump_swap_pool reserve_domain")
-            effective_before = int(event.pool_quote_vault_before_raw) + int(event.pool_virtual_quote_reserve_before_raw)
-            effective_after = int(event.pool_quote_vault_after_raw) + int(event.pool_virtual_quote_reserve_after_raw)
-            if effective_before != event.quote_reserve_before_raw:
-                raise ValueError(f"event row {line_number}: quote_reserve_before_raw must equal quote vault plus signed virtual quote reserve")
-            if effective_after != event.quote_reserve_after_raw:
-                raise ValueError(f"event row {line_number}: quote_reserve_after_raw must equal quote vault plus signed virtual quote reserve")
+            if any(value is not None for value in before_quote_parts):
+                if any(value is None for value in before_quote_parts):
+                    raise ValueError(f"event row {line_number}: quote vault and signed virtual reserve before fields must be supplied together")
+                if event.quote_reserve_before_raw is None:
+                    raise ValueError(f"event row {line_number}: effective quote_reserve_before_raw is required with before quote components")
+                effective_before = int(event.pool_quote_vault_before_raw) + int(event.pool_virtual_quote_reserve_before_raw)
+                if effective_before != event.quote_reserve_before_raw:
+                    raise ValueError(f"event row {line_number}: quote_reserve_before_raw must equal quote vault plus signed virtual quote reserve")
+            if any(value is not None for value in after_quote_parts):
+                if any(value is None for value in after_quote_parts):
+                    raise ValueError(f"event row {line_number}: quote vault and signed virtual reserve after fields must be supplied together")
+                if event.quote_reserve_after_raw is None:
+                    raise ValueError(f"event row {line_number}: effective quote_reserve_after_raw is required with after quote components")
+                effective_after = int(event.pool_quote_vault_after_raw) + int(event.pool_virtual_quote_reserve_after_raw)
+                if effective_after != event.quote_reserve_after_raw:
+                    raise ValueError(f"event row {line_number}: quote_reserve_after_raw must equal quote vault plus signed virtual quote reserve")
         real_fields = (
             event.real_token_reserve_before_raw, event.real_quote_reserve_before_raw,
             event.real_token_reserve_after_raw, event.real_quote_reserve_after_raw,
