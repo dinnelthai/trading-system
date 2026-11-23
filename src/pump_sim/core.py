@@ -26,25 +26,28 @@ class SimConfig:
     candle_interval_s: int = 60
 
     total_supply: float = 1_000_000_000.0
-    dev_allocation: float = 200_000_000.0
-    dev_locked_fraction: float = 0.75
-    other_locked_supply: float = 200_000_000.0
-    curve_real_token_reserve: float = 500_000_000.0
-    curve_virtual_token_reserve: float = 1_000_000_000.0
-    curve_virtual_quote_reserve: float = 100.0
-    graduation_quote_reserve: float = 50.0
+    dev_allocation: float = 0.0
+    dev_locked_fraction: float = 0.0
+    other_locked_supply: float = 0.0
+    curve_real_token_reserve: float = 793_100_000.0
+    curve_migration_token_reserve: Optional[float] = None
+    curve_virtual_token_reserve: float = 1_073_000_000.0
+    curve_virtual_quote_reserve: float = 30.0
+    graduation_quote_reserve: float = 85.0
+    pool_migration_fee_quote: float = 0.015000001
     curve_fee_bps: float = 100.0
     pool_fee_bps: float = 30.0
     pool_lp_fee_share: float = 0.70
     initial_lp_lock_fraction: float = 1.0
-    dev_lp_quote_budget: float = 10.0
+    dev_lp_quote_budget: float = 0.0
     dev_vesting_start_s: float = 3600.0
     dev_vesting_interval_s: float = 3600.0
     dev_vesting_fraction_per_interval: float = 0.0
     dev_treasury_sale_fraction: float = 0.0
     external_fee_bps: float = 8.0
     external_depth_quote: float = 50.0
-    external_initial_token_reserve: float = 100_000_000.0
+    external_initial_token_reserve: float = 0.0
+    external_initial_quote_reserve: float = 50.0
     initial_capital_scale: float = 1.0
     initial_capital_dispersion: float = 0.55
 
@@ -72,11 +75,12 @@ class SimConfig:
         if self.curve_virtual_token_reserve <= 0 or self.curve_virtual_quote_reserve <= 0:
             raise ValueError("curve virtual reserves must be positive")
         if self.graduation_quote_reserve <= 0 or self.external_depth_quote <= 0:
-            raise ValueError("graduation threshold and external depth must be positive")
+            raise ValueError("expected graduation quote and external depth must be positive")
         if self.initial_capital_scale <= 0 or self.initial_capital_dispersion < 0:
             raise ValueError("initial capital scale must be positive and dispersion nonnegative")
         nonnegative = (self.dev_allocation, self.other_locked_supply, self.curve_real_token_reserve,
-                       self.external_initial_token_reserve, self.dev_lp_quote_budget, self.feed_mean_latency_s,
+                       self.external_initial_token_reserve, self.external_initial_quote_reserve,
+                       self.dev_lp_quote_budget, self.pool_migration_fee_quote, self.feed_mean_latency_s,
                        self.mev_max_risk_bps)
         if any(value < 0 for value in nonnegative):
             raise ValueError("supply, budget, latency, and risk parameters must be nonnegative")
@@ -90,6 +94,13 @@ class SimConfig:
             raise ValueError("mev_base_probability must be in [0, 1]")
         if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.external_initial_token_reserve > self.total_supply:
             raise ValueError("initial token allocations exceed total_supply")
+        if self.curve_migration_token_reserve is not None and self.curve_migration_token_reserve < 0:
+            raise ValueError("curve_migration_token_reserve must be nonnegative")
+        derived_migration_reserve = self.total_supply - self.dev_allocation - self.other_locked_supply - self.curve_real_token_reserve - self.external_initial_token_reserve
+        if self.curve_migration_token_reserve is not None and self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.curve_migration_token_reserve + self.external_initial_token_reserve > self.total_supply:
+            raise ValueError("explicit migration reserve makes initial token allocations exceed total_supply")
+        if self.curve_migration_token_reserve is None and derived_migration_reserve < 0:
+            raise ValueError("derived migration token reserve is negative")
         if not 0 <= self.dev_locked_fraction <= 1:
             raise ValueError("dev_locked_fraction must be in [0, 1]")
         if not 0 <= self.pool_lp_fee_share <= 1 or not 0 <= self.initial_lp_lock_fraction <= 1:
@@ -248,10 +259,11 @@ class CandleBuilder:
 
 
 class BondingCurve:
-    def __init__(self, virtual_tokens: float, virtual_quote: float, real_tokens: float, fee_bps: float):
+    def __init__(self, virtual_tokens: float, virtual_quote: float, real_tokens: float, fee_bps: float, migration_tokens: float = 0.0):
         self.virtual_tokens = virtual_tokens
         self.virtual_quote = virtual_quote
         self.real_tokens = real_tokens
+        self.token_account_balance = real_tokens + migration_tokens
         self.real_quote = 0.0
         self.fee_rate = fee_bps / 10_000.0
         self.fees_collected = 0.0
@@ -278,6 +290,7 @@ class BondingCurve:
         self.virtual_tokens -= token_out
         self.virtual_quote += net
         self.real_tokens -= token_out
+        self.token_account_balance -= token_out
         self.real_quote += net
         self.fees_collected += fee
         return Execution(gross_used, token_out, fee)
@@ -295,6 +308,7 @@ class BondingCurve:
         self.virtual_tokens += token_used
         self.virtual_quote -= gross_quote
         self.real_tokens += token_used
+        self.token_account_balance += token_used
         self.real_quote -= gross_quote
         self.fees_collected += fee
         return Execution(token_used, net_quote, fee)
@@ -417,6 +431,8 @@ class Agent:
         if self.kind == "arbitrageur":
             edge = math.log(max(s.reference_price, EPS) / max(s.price, EPS))
             threshold = max(0.003, 0.5 * (self.traits.slippage_tolerance_bps / 10_000.0))
+            if s.phase != Phase.POOL:
+                return None
             if edge > threshold and self.account.quote > 0.05:
                 return Action("arb_buy_local", amount=min(self.account.quote * 0.5, self.account.quote * self.rng.uniform(0.03, 0.18)))
             if edge < -threshold and self.account.quote > 0.05:
@@ -468,11 +484,16 @@ class Agent:
 class Market:
     def __init__(self, config: SimConfig):
         self.config = config
+        migration_tokens = config.curve_migration_token_reserve
+        if migration_tokens is None:
+            migration_tokens = config.total_supply - config.dev_allocation - config.other_locked_supply - config.curve_real_token_reserve - config.external_initial_token_reserve
+        self.curve_migration_token_reserve = migration_tokens
         self.curve = BondingCurve(
             config.curve_virtual_token_reserve,
             config.curve_virtual_quote_reserve,
             config.curve_real_token_reserve,
             config.curve_fee_bps,
+            migration_tokens,
         )
         self.pool: Optional[ConstantProductPool] = None
         self.initial_lp_locked_shares = 0.0
@@ -482,10 +503,9 @@ class Market:
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
         self.external_token_reserve = config.external_initial_token_reserve
-        initial_price = config.curve_virtual_quote_reserve / max(config.curve_virtual_token_reserve, EPS)
-        self.external_quote_reserve = self.external_token_reserve * initial_price
+        self.external_quote_reserve = config.external_initial_quote_reserve
         dev_unlocked = config.dev_allocation * (1.0 - config.dev_locked_fraction)
-        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - config.curve_real_token_reserve - self.external_token_reserve)
+        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - self.curve.token_account_balance - self.external_token_reserve)
 
     @property
     def price(self) -> float:
@@ -539,17 +559,23 @@ class Market:
         return self.pool.sell(token_in)  # type: ignore[union-attr]
 
     def maybe_migrate(self, timestamp: float) -> bool:
-        if self.phase != Phase.CURVE or self.curve.real_quote < self.config.graduation_quote_reserve:
+        # Pump completion is driven by exhausting the real curve token inventory,
+        # not by crossing a quote-reserve threshold. The remaining token-account
+        # balance is the migration base reserve; real quote reserves fund the pool.
+        if self.phase != Phase.CURVE or self.curve.real_tokens > EPS:
             return False
-        if self.curve.real_tokens <= EPS or self.curve.real_quote <= EPS:
+        pool_tokens = self.curve.token_account_balance
+        pool_quote = self.curve.real_quote - self.config.pool_migration_fee_quote
+        if pool_tokens <= EPS or pool_quote <= EPS:
             return False
         self.migration_price_before = self.curve.price
         self.pool = ConstantProductPool(
-            self.curve.real_tokens,
-            self.curve.real_quote,
+            pool_tokens,
+            pool_quote,
             self.config.pool_fee_bps,
             self.config.pool_lp_fee_share,
         )
+        self.curve.token_account_balance = 0.0
         self.initial_lp_locked_shares = self.pool.total_lp_shares * self.config.initial_lp_lock_fraction
         self.migration_price_after = self.pool.price
         self.migration_price_gap_bps = (self.migration_price_after / max(self.migration_price_before, EPS) - 1.0) * 10_000.0
@@ -704,7 +730,7 @@ class SimulationEngine:
         holder_tokens = [token_exposure(a) for a in self.agents if a.kind not in ("dev", "mev_risk")]
         top_holder = max(holder_tokens, default=0.0) / circulating
         dev_float = dev_tokens / circulating
-        progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
+        progress = min(1.0, 1.0 - self.market.curve.real_tokens / max(self.config.curve_real_token_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
         while self.recent_trade_window and self.recent_trade_window[0][0] < timestamp - 60.0:
             _, expired_volume = self.recent_trade_window.popleft()
             self.recent_volume_quote = max(0.0, self.recent_volume_quote - expired_volume)
@@ -787,6 +813,7 @@ class SimulationEngine:
     def _handle_migration(self) -> None:
         if self._migration_handled or self.market.phase != Phase.POOL or self.dev is None:
             return
+        self.reference_price = self.market.price
         budget = min(self.config.dev_lp_quote_budget, self.dev.account.quote)
         if budget > EPS and self.dev.account.tokens > EPS:
             token_used, quote_used, shares = self.market.pool.add_liquidity(self.dev.account.tokens, budget)  # type: ignore[union-attr]
@@ -1012,7 +1039,7 @@ class SimulationEngine:
         true_bars = self.true_candles.bars()
         observed_volume = sum(c.volume_quote for c in observed_bars)
         true_volume = sum(c.volume_quote for c in true_bars)
-        market_token_inventory = self.market.curve.real_tokens if self.market.pool is None else self.market.pool.token_reserve
+        market_token_inventory = self.market.curve.token_account_balance if self.market.pool is None else self.market.pool.token_reserve
         agent_token_inventory = math.fsum(a.account.tokens for a in self.agents)
         accounted_supply = math.fsum((agent_token_inventory, market_token_inventory, self.market.external_token_reserve, self.market.locked_supply))
         curve_trades = [trade for trade in self.trades if trade.phase == Phase.CURVE.value]
@@ -1061,6 +1088,9 @@ class SimulationEngine:
             "trades": len(self.trades),
             "curve_real_quote_reserve": self.market.curve.real_quote,
             "curve_real_token_reserve": self.market.curve.real_tokens,
+            "curve_token_account_balance": self.market.curve.token_account_balance,
+            "curve_migration_token_reserve": self.market.curve_migration_token_reserve,
+            "pool_migration_fee_quote": self.config.pool_migration_fee_quote,
             "curve_progress": curve_progress,
             "curve_buy_trades": curve_flow["buy_trades"],
             "curve_sell_trades": curve_flow["sell_trades"],
