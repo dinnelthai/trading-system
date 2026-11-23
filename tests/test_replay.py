@@ -1,6 +1,6 @@
 import pytest
 
-from pump_sim.replay import normalize_events, replay_events
+from pump_sim.replay import load_events_jsonl, normalize_events, replay_events
 
 
 TOKEN = "TokenMint111"
@@ -543,3 +543,19 @@ def test_virtual_quote_reserve_must_fit_signed_i128():
     )
     with pytest.raises(ValueError, match="virtual quote reserve exceeds i128"):
         normalize_events([invalid])
+
+
+def test_repository_synthetic_jsonl_example_runs_through_the_replay_engine():
+    from pathlib import Path
+
+    fixture_path = Path(__file__).resolve().parents[1] / "examples" / "normalized_events.synthetic.jsonl"
+    events = load_events_jsonl(fixture_path)
+    report = replay_events(events)
+
+    assert report["replay_status"] == "consistent"
+    assert report["sample"]["events"] == 8
+    assert report["curve_complete_count"] == 1
+    assert report["migration_count"] == 1
+    assert report["event_counts"]["post_complete_buy"] == 1
+    assert report["event_counts"]["liquidity_add"] == 1
+    assert report["final_reserves"]["pump_swap_pool"]["virtual_quote_reserve_raw"] == -3_000_000_000
