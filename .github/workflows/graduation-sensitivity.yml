@@ -1,0 +1,83 @@
+name: graduation-sensitivity
+
+on:
+  push:
+    branches:
+      - feat/agent-based-simulator
+    paths:
+      - .github/workflows/graduation-sensitivity.yml
+  workflow_dispatch:
+    inputs:
+      runs_per_value:
+        description: Independent market paths per graduation threshold
+        required: true
+        default: "100"
+        type: number
+      duration_s:
+        description: Simulated seconds per market path
+        required: true
+        default: "1800"
+        type: number
+      seed:
+        description: First random seed shared across scenarios
+        required: true
+        default: "20261123"
+        type: number
+
+jobs:
+  sweep:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-graduation-sweep]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUNS_PER_VALUE: ${{ inputs.runs_per_value || '100' }}
+      DURATION_S: ${{ inputs.duration_s || '1800' }}
+      SEED: ${{ inputs.seed || '20261123' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install simulator
+        run: python -m pip install -e .
+      - name: Sweep graduation reserve threshold
+        run: |
+          mkdir -p results
+          python -m pump_sim \
+            --config configs/default.json \
+            --seed "$SEED" \
+            --duration "$DURATION_S" \
+            --sweep-field graduation_quote_reserve \
+            --sweep-values 5,10,20,30,40,50 \
+            --runs "$RUNS_PER_VALUE" \
+            --csv-out results/graduation-sensitivity.csv \
+            --summary-only \
+            --out results/graduation-sensitivity.json
+      - name: Validate sweep output
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("results/graduation-sensitivity.json").read_text())
+          scenarios = summary["scenarios"]
+          assert len(scenarios) == 6
+          assert all(0 <= item["graduation_rate"] <= 1 for item in scenarios)
+          with Path("results/graduation-sensitivity.csv").open(newline="") as handle:
+              rows = list(csv.DictReader(handle))
+          assert len(rows) == 6
+          for item in scenarios:
+              print(
+                  "threshold:", item["value"],
+                  "graduation_rate:", item["graduation_rate"],
+                  "median_time_s:", item["metrics"]["graduation_time_s"]["median"],
+                  "median_curve_net_flow:", item["metrics"]["curve_net_quote_flow"]["median"],
+              )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graduation-sensitivity-results
+          path: results/
+          if-no-files-found: error
+          retention-days: 30
