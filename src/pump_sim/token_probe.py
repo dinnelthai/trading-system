@@ -244,7 +244,6 @@ def probe_token(
         max_retries=max_retries,
     )
 
-    ordered = sorted(signatures, key=lambda item: (item["slot"], item["signature"]))
     first_slot = min((item["slot"] for item in signatures), default=None)
     last_slot = max((item["slot"] for item in signatures), default=None)
     first_slot_records = [item for item in signatures if item["slot"] == first_slot] if first_slot is not None else []
@@ -280,4 +279,6 @@ def probe_token(
             ),
         },
     }
-    return summary, ordered
+    # Preserve the RPC's newest-first address-index order. This is not block
+    # transaction order; the getBlock archive remains the canonical replay tape.
+    return summary, signatures
