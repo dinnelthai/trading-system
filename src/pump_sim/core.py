@@ -90,6 +90,7 @@ class SimConfig:
     n_snipers: int = 12
     n_kols: int = 3
     n_arbitrageurs: int = 4
+    n_informed_traders: int = 8
     n_retail: int = 60
     n_whales: int = 5
     n_lp_providers: int = 8
@@ -122,8 +123,8 @@ class SimConfig:
                        self.mev_max_risk_bps)
         if any(value < 0 for value in nonnegative):
             raise ValueError("supply, budget, latency, and risk parameters must be nonnegative")
-        counts = (self.n_snipers, self.n_kols, self.n_arbitrageurs, self.n_retail, self.n_whales,
-                  self.n_lp_providers, self.n_mev_risk_agents)
+        counts = (self.n_snipers, self.n_kols, self.n_arbitrageurs, self.n_informed_traders,
+                  self.n_retail, self.n_whales, self.n_lp_providers, self.n_mev_risk_agents)
         if any(value < 0 for value in counts):
             raise ValueError("agent population counts must be nonnegative")
         if not 0 <= self.external_fee_bps < 10_000:
@@ -197,6 +198,7 @@ class Traits:
             "retail": (0.012, 0.10, 0.9, 1.5, 0.95, 0.07, 0.42, 900, 0.75, 1.2, 2.1, 1400),
             "whale": (0.004, 0.08, 0.55, 0.45, 0.65, 0.12, 0.72, 1800, 1.1, 1.8, 2.4, 600),
             "arbitrageur": (0.025, 0.08, 0.2, 0.1, 0.25, 0.14, 0.08, 45, 0.08, 0.1, 1.0, 250),
+            "informed_trader": (0.008, 0.08, 0.25, 0.12, 0.20, 0.14, 0.18, 600, 0.25, 0.5, 1.5, 350),
             "lp_provider": (0.002, 0.09, 0.2, 0.25, 0.35, 0.18, 0.65, 3600, 1.5, 0.5, 1.6, 500),
             "kol": (0.0015, 0.12, 0.7, 1.7, 0.8, 0.0, 0.0, 1200, 2.0, 0.7, 1.5, 0),
             "dev": (0.0002, 0.15, 0.0, 0.0, 0.1, 0.0, 0.0, 86400, 2.0, 0.0, 1.0, 0),
@@ -775,6 +777,24 @@ class Agent:
                 return Action("arb_sell_local", amount=min(self.account.quote * 0.5, self.account.quote * self.rng.uniform(0.03, 0.18)))
             return None
 
+        if self.kind == "informed_trader":
+            # A noisy private fundamental estimate is deliberately less
+            # sensitive to social attention than the discretionary retail model.
+            overhang = max(0.0, s.dev_float_share - 0.10)
+            utility = (
+                2.0 * (s.project_quality - 0.5)
+                + 0.25 * self.traits.momentum_sensitivity * s.momentum
+                - self.traits.risk_aversion * s.volatility * 2.0
+                - self.traits.dev_overhang_sensitivity * overhang
+                + self.rng.gauss(0.0, self.traits.signal_noise)
+            )
+            if utility > self.traits.entry_threshold and self.account.quote > 0.1:
+                fraction = self.rng.uniform(0.05, max(0.06, self.traits.order_fraction))
+                return Action("buy", amount=min(self.account.quote, self.account.quote * fraction))
+            if utility < -self.traits.entry_threshold * self.traits.loss_aversion and self.account.tokens > 1.0:
+                return Action("sell", amount=self.account.tokens * self.rng.uniform(0.05, 0.30))
+            return None
+
         utility = self.signal(s)
         if self.kind == "sniper":
             if self.account.tokens <= EPS and s.phase == Phase.CURVE and s.timestamp < 300 and utility > -0.05:
@@ -1035,6 +1055,7 @@ class SimulationEngine:
             ("sniper", c.n_snipers, 2.0, 0.20, 10.0),
             ("kol", c.n_kols, 5.0, 0.50, 20.0),
             ("arbitrageur", c.n_arbitrageurs, 12.0, 2.0, 50.0),
+            ("informed_trader", c.n_informed_traders, 8.0, 0.50, 35.0),
             ("retail", c.n_retail, 0.60, 0.05, 5.0),
             ("whale", c.n_whales, 25.0, 5.0, 120.0),
             ("lp_provider", c.n_lp_providers, 5.0, 0.50, 30.0),
