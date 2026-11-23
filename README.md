@@ -77,11 +77,12 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
+- [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
 
-The simulator reports distributions, participant-level outcomes, concentration, liquidity, fees, drawdown, graduation, MEV-risk exposure, and true-versus-observed candle differences. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
+The simulator reports distributions, participant-level outcomes, token and LP concentration, fee-aware pool depth, liquidity add/remove events, fees, drawdown, graduation, execution slippage, and true-versus-observed candle differences. Set `record_pool_event_trace=true` to include the detailed pool-state event trace in a run summary. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
 
 
 ## Empirical calibration
