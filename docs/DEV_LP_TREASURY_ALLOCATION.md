@@ -5,7 +5,7 @@
 **Status:** Analytical baseline defined; calibrated allocator and simulator implementation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Decision authority:** [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md)  
-**Related specifications:** [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md), [PumpSwap Pool Microstructure](POOL_MICROSTRUCTURE.md)  
+**Related specifications:** [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md), [PumpSwap Pool Microstructure](POOL_MICROSTRUCTURE.md), [Pool Depth Elasticity](DEPTH_ELASTICITY.md)  
 **Scope:** Pump.fun bonding curve → graduation → fixed PumpSwap CPMM; spot-only assets, no perpetual or options hedging
 
 > This is a research and risk-management model. It does not authorize live execution, self-trading, wash volume, artificial price/volume activity, concealed beneficial ownership, or deceptive treasury exits. Only genuine independent trading activity may be used to estimate fee revenue.
@@ -496,11 +496,11 @@ The allocator requires a time-aligned state snapshot containing:
 - quote Treasury, operating obligations and minimum reserve;
 - event completeness, latency, duplicate/drop status and state watermark.
 
-Calibrate \(V(T)\) and its elasticity using matched cohorts or controlled historical comparisons. A correlation between TVL and volume is not enough: both may be caused by market attention or price appreciation. Use held-out cohorts and report uncertainty. Until credible calibration exists, set \(\epsilon_V=0\) for the conservative LP capital-allocation baseline.
+Use the explicit route-choice, fill-probability and arbitrage-capacity decomposition in [Pool Depth Elasticity](DEPTH_ELASTICITY.md). Calibrate \(V(T)\) and its elasticity using matched cohorts or controlled historical comparisons. A correlation between TVL and volume is not enough: both may be caused by market attention or price appreciation. Use held-out cohorts and report uncertainty. Until credible calibration exists, set \(\epsilon_V=0\) for the conservative LP capital-allocation baseline.
 
 ## 12. Experiment plan
 
-Compare these policies on matched random seeds and held-out historical cohorts:
+Compare these policies on matched random seeds and held-out historical cohorts. For depth-dependent volume assumptions, use the two-stage fixed-intent replay and adaptive route-choice design in [Pool Depth Elasticity](DEPTH_ELASTICITY.md):
 
 1. Hold all capital in the original Token/quote basket.
 2. Hold free Token and quote only; no Dev LP.
@@ -548,7 +548,7 @@ The allocator is not accepted until:
 2. Reuse the versioned Pump fee adapter specified in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md).
 3. Add LP Delta/Gamma and benchmark-specific IL/LVR analytics.
 4. Add turnover/LVR screening metrics using true external swaps and the active LP fee tier.
-5. Estimate the depth-to-genuine-volume elasticity with historical cohorts; use zero until validated.
+5. Implement the multi-venue route-choice and no-trade model described in [Pool Depth Elasticity](DEPTH_ELASTICITY.md); estimate depth-to-genuine-volume elasticity with historical cohorts and use zero until validated.
 6. Implement the LP marginal capital allocator as a proposal engine, not a transaction authority.
 7. Integrate its proposals with the Decision Orchestrator's hard gates and joint action bundles.
 8. Run matched-seed Monte Carlo, historical replay and paper validation before any live authorization.
