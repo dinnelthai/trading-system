@@ -1052,6 +1052,7 @@ class SimulationEngine:
             "total_supply": self.config.total_supply,
             "accounted_token_supply": accounted_supply,
             "token_supply_accounting_error": self.config.total_supply - accounted_supply,
+            "token_supply_accounting_error_fraction": (self.config.total_supply - accounted_supply) / self.config.total_supply,
             "final_price": price,
             "reference_price": self.reference_price,
             "initial_price": self.initial_price,
@@ -1146,7 +1147,8 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
                 "lp_fees_quote", "estimated_mev_risk_cost_quote",
                 "dev_float_share", "top_holder_share", "top_holder_share_including_dev", "top_5_holders_share",
                 "wallet_holder_hhi", "observed_to_true_volume_ratio",
-                "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error"):
+                "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error",
+                "token_supply_accounting_error_fraction"):
         xs = values(key)
         metrics[key] = {
             "mean": statistics_mean(xs),
