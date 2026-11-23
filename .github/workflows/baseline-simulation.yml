@@ -35,9 +35,9 @@ jobs:
           mkdir -p results
           python -m pump_sim \
             --config configs/default.json \
-            --seed "\${{ inputs.seed }}" \
-            --duration "\${{ inputs.duration_s }}" \
-            --runs "\${{ inputs.runs }}" \
+            --seed "${{ inputs.seed }}" \
+            --duration "${{ inputs.duration_s }}" \
+            --runs "${{ inputs.runs }}" \
             --csv-out results/baseline-runs.csv \
             --summary-only \
             --out results/baseline-summary.json
