@@ -28,6 +28,9 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 10. **Data quality:** vary feed latency, dropped-event rate, and duplicate-delivery rate. Compare observed candles with the true execution tape.
 11. **Dev treasury exit:** compare no-sale, fixed vesting-sale, fixed tranche, risk-threshold, adaptive optimal-stopping and route-aware policies on matched seeds. Vary Dev LP ownership, unlocked overhang, independent executable depth, volatility, OTC capacity, future unlocks and treasury reserve requirements. Measure net realized proceeds, terminal liquidation value, beneficial exposure reduction, market impact, post-sale depth, treasury runway and tail outcomes.
 
+12. **LP exit sequencing:** compare sell-before-remove, partial-remove-before-sell, remove-only and independent OTC routes at identical starting states. Vary Dev LP share, removal fraction, sell size, fee split and external LP share. Measure owner-level Token/SOL exposure, seller net proceeds, marginal price impact, remaining two-sided depth, external LP loss and post-action concentration. Reject policies that improve Dev proceeds only by breaching market-quality constraints or shifting excessive losses to remaining LPs.
+13. **Fee accounting:** test buy and sell reserve deltas separately under multiple LP/protocol splits; include versioned Pump creator/protocol/LP fee tiers and verify that LP-retained fees are counted once.
+
 ## Stress scenarios
 
 Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve relationships when changing curve parameters; do not tune graduation by changing a quote threshold because Pump completion is based on real-token exhaustion:
