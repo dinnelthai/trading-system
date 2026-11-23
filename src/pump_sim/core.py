@@ -842,8 +842,18 @@ class SimulationEngine:
             row["tokens"] += a.account.tokens
             row["lp_token_claim"] += lp_claim
             row["quote"] += a.account.quote
-        observed_volume = sum(c.volume_quote for c in self.observed_candles.bars())
-        true_volume = sum(c.volume_quote for c in self.true_candles.bars())
+        observed_bars = self.observed_candles.bars()
+        true_bars = self.true_candles.bars()
+        observed_volume = sum(c.volume_quote for c in observed_bars)
+        true_volume = sum(c.volume_quote for c in true_bars)
+        true_by_start = {bar.start: bar for bar in true_bars}
+        observed_by_start = {bar.start: bar for bar in observed_bars}
+        matched_starts = sorted(set(true_by_start) & set(observed_by_start))
+        close_errors_bps = [abs(observed_by_start[k].close / max(true_by_start[k].close, EPS) - 1.0) * 10_000.0 for k in matched_starts]
+        ohlc_mismatches = sum(
+            1 for k in matched_starts
+            if any(abs(getattr(observed_by_start[k], field) - getattr(true_by_start[k], field)) > EPS for field in ("open", "high", "low", "close"))
+        )
         return {
             "seed": self.config.seed,
             "phase": self.market.phase.value,
@@ -859,6 +869,10 @@ class SimulationEngine:
             "true_volume_quote": true_volume,
             "observed_volume_quote": observed_volume,
             "observed_to_true_volume_ratio": observed_volume / max(true_volume, EPS),
+            "candle_close_mae_bps": statistics_mean(close_errors_bps),
+            "candle_close_max_error_bps": max(close_errors_bps, default=0.0),
+            "candle_ohlc_mismatch_bars": ohlc_mismatches,
+            "candle_unmatched_bars": len(set(true_by_start) ^ set(observed_by_start)),
             "fees_quote": self.total_fees_quote,
             "estimated_mev_risk_cost_quote": self.total_mev_risk_cost,
             "feed_dropped_events": self.feed_dropped,
