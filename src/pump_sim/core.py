@@ -45,6 +45,8 @@ class SimConfig:
     external_fee_bps: float = 8.0
     external_depth_quote: float = 50.0
     external_initial_token_reserve: float = 100_000_000.0
+    initial_capital_scale: float = 1.0
+    initial_capital_dispersion: float = 0.55
 
     n_snipers: int = 12
     n_kols: int = 3
@@ -71,6 +73,8 @@ class SimConfig:
             raise ValueError("curve virtual reserves must be positive")
         if self.graduation_quote_reserve <= 0 or self.external_depth_quote <= 0:
             raise ValueError("graduation threshold and external depth must be positive")
+        if self.initial_capital_scale <= 0 or self.initial_capital_dispersion < 0:
+            raise ValueError("initial capital scale must be positive and dispersion nonnegative")
         nonnegative = (self.dev_allocation, self.other_locked_supply, self.curve_real_token_reserve,
                        self.external_initial_token_reserve, self.dev_lp_quote_budget, self.feed_mean_latency_s,
                        self.mev_max_risk_bps)
@@ -129,7 +133,9 @@ class Traits:
             "mev_risk": (0.02, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 1, 0.02, 0.0, 1.0, 0),
         }
         p = profiles[kind]
-        jitter = lambda x, lo, hi: max(lo, min(hi, x * rng.uniform(0.72, 1.28)))
+        # Multiplicative log-normal variation creates a realistic right tail
+        # without assigning every participant a narrow uniform trait band.
+        jitter = lambda x, lo, hi: max(lo, min(hi, x * math.exp(rng.gauss(0.0, 0.28))))
         return cls(
             activity_rate=jitter(p[0], 0.00005, 0.2),
             risk_aversion=jitter(p[1], 0.01, 1.0),
@@ -143,7 +149,7 @@ class Traits:
             dev_overhang_sensitivity=jitter(p[9], 0.0, 3.0),
             loss_aversion=jitter(p[10], 1.0, 4.0),
             slippage_tolerance_bps=jitter(p[11], 100, 2000) if p[11] else 0.0,
-            migration_exit_probability=max(0.0, min(0.99, {"sniper": 0.82, "retail": 0.08, "whale": 0.04}.get(kind, 0.0) * rng.uniform(0.7, 1.2))),
+            migration_exit_probability=max(0.0, min(0.99, {"sniper": 0.82, "retail": 0.08, "whale": 0.04}.get(kind, 0.0) * math.exp(rng.gauss(0.0, 0.22)))),
         )
 
 
@@ -611,18 +617,24 @@ class SimulationEngine:
         self.dev = self._new_agent("dev", 0, c.dev_lp_quote_budget + 2.0, dev_unlocked)
         self.dev.account.avg_entry_price = self.market.price
         self.agents.append(self.dev)
+        # Median capital and hard bounds differ by participant type. A log-normal
+        # draw produces a right-skewed wallet distribution instead of a uniform one.
         populations = [
-            ("sniper", c.n_snipers, (1.0, 4.0)),
-            ("kol", c.n_kols, (3.0, 8.0)),
-            ("arbitrageur", c.n_arbitrageurs, (8.0, 20.0)),
-            ("retail", c.n_retail, (0.2, 2.0)),
-            ("whale", c.n_whales, (10.0, 50.0)),
-            ("lp_provider", c.n_lp_providers, (2.0, 10.0)),
-            ("mev_risk", c.n_mev_risk_agents, (0.0, 0.0)),
+            ("sniper", c.n_snipers, 2.0, 0.20, 10.0),
+            ("kol", c.n_kols, 5.0, 0.50, 20.0),
+            ("arbitrageur", c.n_arbitrageurs, 12.0, 2.0, 50.0),
+            ("retail", c.n_retail, 0.60, 0.05, 5.0),
+            ("whale", c.n_whales, 25.0, 5.0, 120.0),
+            ("lp_provider", c.n_lp_providers, 5.0, 0.50, 30.0),
+            ("mev_risk", c.n_mev_risk_agents, 0.0, 0.0, 0.0),
         ]
-        for kind, count, balances in populations:
+        for kind, count, median_capital, lower_bound, upper_bound in populations:
             for i in range(count):
-                quote = self.seed_rng.uniform(*balances) if balances[1] > balances[0] else balances[0]
+                if median_capital <= 0:
+                    quote = 0.0
+                else:
+                    draw = self.seed_rng.lognormvariate(math.log(median_capital), c.initial_capital_dispersion)
+                    quote = max(lower_bound, min(upper_bound, draw * c.initial_capital_scale))
                 agent = self._new_agent(kind, i, quote)
                 self.agents.append(agent)
                 if kind == "mev_risk":
