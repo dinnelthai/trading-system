@@ -500,7 +500,7 @@ Use an analytical PumpSwap canonical SOL-pair state:
 
 - total supply: 1 billion tokens;
 - \(X=100,000,000\) Token and \(Y=100\) SOL;
-- \(P_{ref}=Y/X=0.000001\) SOL per Token, giving a 1,000 SOL market cap;
+- \(P_{ref}=Y/X=0.000001\) SOL per Token, giving a 1,000 SOL market cap; assume the independent executable reference agrees with this pre-trade pool spot for the isolated example;
 - \(q=2,500,000\) Token, or 2.5% of the starting Token reserve;
 - Dev owns \(\alpha=40\%\) of the LP;
 - fee tier: 420–1,470 SOL, with Creator 0.950%, Protocol 0.050%, LP 0.200%;
@@ -549,7 +549,7 @@ At the independent reference price, the value of that reduced exposure is 1.5 SO
 =-0.040732\ SOL
 \]
 
-The post-trade marginal-price decline is approximately 4.814%, and average execution shortfall versus the pre-trade reference is approximately 2.439%.
+The post-trade marginal-price decline is approximately 4.814%. Gross curve VWAP is 2.439% below the pre-trade reference; the seller's net output after the 1.20% pool fee is 3.610% below that reference, before any separate interface or network costs.
 
 This example demonstrates that the sale converts some Token exposure into quote cash at a small execution cost; it does not create free wealth. If Dev is not entitled to the Creator Fee, the same example's net value change is approximately -0.063902 SOL. All figures are model outputs under the stated fee-basis assumption, not a live quote or a recommendation to trade.
 
@@ -602,6 +602,9 @@ q_{max}=\min(q_{impact}^{max},q_{route},q_{eligible},q_{mandate})
 \]
 
 If \(q_{BE}>q_{max}\), the cash shortfall cannot be closed by one permitted sale in the current state. Do not exceed the impact/depth limit. Re-evaluate after genuinely new market information and state changes, or assess a verified independent route and the treasury's funding/obligation plan.
+
+For the worked fee-tier state above, \(r_C=0.0095\), \(r_P=0.0005\), \(r_L=0.002\), \(\eta=1\), \(\alpha=0.40\), and \(r_R=0\), so \(k=0.5983\). If the remaining recovery shortfall is \(S=5\) SOL and fixed costs are zero, the closed-form result is approximately \(q_{BE}=9.119\) million Token. That quantity implies roughly 16.0% marginal-price impact, well above the illustrative 5% cap. The permitted 5% impact quantity is only about 2.601 million Token and recovers approximately 1.516 SOL at the owner level under these assumptions. The correct result is “the 5 SOL target is not reachable in one compliant sale in this state,” not “increase the sale until the target is met.”
+
 
 For fee-tier crossings, multiple routes, PumpSwap virtual-reserve semantics or changing LP ownership, solve the exact state transition numerically using the versioned fee adapter. Do not extrapolate the constant-tier closed form across a tier boundary.
 
