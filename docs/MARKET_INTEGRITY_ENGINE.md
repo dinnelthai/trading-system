@@ -48,6 +48,12 @@ The report keeps these quantities separate:
 
 A behavioral anomaly is not enough to reclassify unknown volume as related/controlled. Upstream attribution requires auditable evidence.
 
+## Simulation integration
+
+`SimulationEngine.summary()` now emits a `market_integrity` object by adapting simulated fills to the canonical event schema. In this synthetic fixture only, agent identities are known by construction: the Dev agent is labeled related/controlled and each other simulated agent is labeled independent. This is ground-truth metadata for simulator validation, not a rule that may be applied to real wallets.
+
+The projection uses raw integer amounts at declared synthetic mint precision and preserves the same market, side, finality and attribution dimensions as historical replay. Real historical events must instead use evidence-backed attribution labels supplied by the data pipeline.
+
 ## Output interpretation
 
 Flags use `info`, `review` and `high` severity. `requires_review` is true when any review/high flag exists. It is not an automatic market halt. The caller must apply policy-specific gates, confirm the data is complete, and preserve the evidence that generated the alert.
