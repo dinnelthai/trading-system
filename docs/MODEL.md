@@ -41,7 +41,8 @@ where:
 - \(A\) is attention;
 - \(S\) is sentiment;
 - \(V\) is realized volatility;
-- \(F\) is the latent project-quality signal (agents observe it with noise);\n- \(D_f\) is Dev's unlocked token and LP-claim exposure as a share of circulating supply;
+- \(F\) is the latent project-quality signal (agents observe it with noise);
+- \(D_f\) is Dev's unlocked token and LP-claim exposure as a share of circulating supply;
 - \(a_i,b_i,r_i,d_i\) are heterogeneous traits;
 - \(\epsilon_i\) is agent-specific noise.
 
