@@ -44,7 +44,7 @@ with:
 D_u=D(1-v),\qquad D_l=Dv
 \]
 
-where \\(D\\) is the Dev genesis allocation and (v\in[0,1]) is its locked fraction.
+where \\(D\\) is the Dev genesis allocation and \\(v\\in[0,1]\\) is its locked fraction.
 
 When migration inventory is not explicitly configured:
 
@@ -162,7 +162,7 @@ Report at least:
 - Dev beneficial exposure share: (D_{beneficial}/S_T);
 - Dev unlocked share of circulating supply;
 - Dev share of wallet free float;
-- Dev LP token claim, reported separately.
+- Dev LP token claim amount, reported separately as dev_lp_token_claim.
 
 Do not infer that LP claim is instantly sellable. LP withdrawal constraints, lock/burn status, and the cost and impact of removing liquidity belong to the LP/lifecycle models.
 
