@@ -46,7 +46,7 @@ where:
 - \(a_i,b_i,r_i,d_i\) are heterogeneous traits;
 - \(\epsilon_i\) is agent-specific noise.
 
-Agents compare this score with their own thresholds. Order sizes are random fractions of available capital or inventory. The model does not force agents to trade.
+Agents compare this score with their own thresholds. Order sizes are random fractions of available capital or inventory. The model does not force agents to trade. Initial wallet capital is sampled from role-specific, bounded log-normal distributions, creating a right-skewed wealth distribution rather than identical or uniformly distributed wallets. Trait multipliers are also sampled multiplicatively, so a role is a population distribution, not one fixed personality.
 
 ### Arrival and disorder
 
