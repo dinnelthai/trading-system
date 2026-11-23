@@ -18,6 +18,8 @@ The [Market Quality Metrics Engine](docs/MARKET_QUALITY_ENGINE.md) adds independ
 
 The [Multi-Venue Route Selector](docs/ROUTE_SELECTION.md) compares supplied executable quotes against an independent reference, accounts for quote freshness, depth, latency and settlement probability, and retains a NO_TRADE option. It is a route-choice model only; it does not submit swaps.
 
+The [Market Integrity Engine](docs/MARKET_INTEGRITY_ENGINE.md) adds conservative diagnostics for rapid wallet round trips, verified related-owner turnover, synchronized bursts, wallet concentration, sell pressure versus executable depth and pool/reference divergence. Weak wallet correlations never merge ownership clusters, and anomaly flags never rewrite canonical volume attribution.
+
 The [Decision Orchestrator](docs/DECISION_ORCHESTRATOR.md) now has an executable safety-arbitration subset: integrity/data/accounting gates, risk-prioritized ADD/REMOVE/HOLD/PAUSE/RECONCILE/OBSERVE decisions and time-persistent hysteresis. Proposal bundling, canonical state-version checks, pre-trade simulation and paper execution remain open.
 
 ## Implemented participant population
