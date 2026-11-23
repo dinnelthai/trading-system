@@ -127,6 +127,10 @@ The pool is a configurable constant-product AMM. Buys and sells use fee-adjusted
 
 LP shares are proportional claims on pool reserves. Initial migration LP shares can be marked locked/burned. Additional Dev and LP-provider positions are separately accounted for. LP cost basis is tracked across deposits and withdrawals to prevent double-counting PnL.
 
+R03 distinguishes pre-trade marginal spot price, swap execution/VWAP price, and post-trade marginal spot price. It solves buy and sell depth at 1%, 5%, and 10% marginal price impact using the actual LP/protocol fee split. The summary includes pool (k), quote-denominated TVL, depth, LP locked/agent/unassigned ownership, LP-share HHI, and liquidity add/remove totals.
+
+Pool-state events can record migration, LP additions, LP removals, and swaps with before/after reserves, price, (k), and depth. The detailed trace is opt-in through `record_pool_event_trace=true`; aggregate metrics remain available by default. See [R03 — Pool Microstructure and Candle Diagnostics](POOL_MICROSTRUCTURE.md).
+
 ### Cross-venue arbitrage
 
 The external venue is a simplified post-graduation reference venue with a stochastic reference price, external fee, finite quote depth, and separately accounted token inventory. Arbitrageurs do not trade against a fictitious second venue during the bonding-curve phase. The external venue is not yet a second fully calibrated AMM.
@@ -148,6 +152,8 @@ Two tapes are maintained:
 - **Observed tape:** a feed projection with configurable latency, dropped events, and duplicate deliveries.
 
 Only true executions create true OHLCV volume. Duplicate or delayed observations can make a chart feed appear stale, out of order, or have a different volume total, but those observations are not treated as extra on-chain trades.
+
+Candles use executed swap VWAP, not the post-swap marginal spot price. Each bar also reports token volume, buy/sell quote volume, and buy/sell trade counts. R03 compares true and observed open/high/low/close, volume, side flow, trade counts, and buy/sell imbalance. LP additions and removals are recorded as pool-state events; they do not create swap volume or candles when deposits/withdrawals are ratio-matched.
 
 ## 8. Required interpretation
 
