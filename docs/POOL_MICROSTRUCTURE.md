@@ -170,6 +170,24 @@ The current simulator's generic `ConstantProductPool` is a two-component abstrac
 
 Fee schedules and instruction variants are slot-dependent. PumpSwap V1/V2 and Bonding Curve legacy/V2/V3 trades may coexist on the same pool or curve. Historical replay must use the fee and reserve semantics active for each transaction, rather than applying the latest global configuration to all historical trades.
 
+### 4.1 Versioned fee-adapter contract
+
+The fee adapter must not collapse Pump fees into one constant pool fee value. It must return a per-transaction fee breakdown keyed by:
+
+- venue: bonding curve, PumpSwap canonical or PumpSwap non-canonical;
+- pair asset: SOL, USDC or custom pair;
+- market-cap tier and fee-schedule effective date;
+- instruction/program version and slot;
+- route hops and interface (Pump web/mobile, Terminal or third-party);
+- Creator Fee beneficiary mode: creator, Holder Rewards, charity or unknown.
+
+For SOL canonical PumpSwap, the published schedule includes a 0.300% / 0.930% / 0.020% Creator / Protocol / LP split below 420 SOL, a 0.950% / 0.050% / 0.200% split from 420 to 1,470 SOL, and a 0.050% / 0.050% / 0.200% split at 98,240 SOL and above. Non-canonical PumpSwap pools use a separate 0% / 0.050% / 0.250% schedule. USDC thresholds differ, and custom pairs use flat schedules. See the [official Pump.fun fee schedule](https://pump.fun/docs/fees).
+
+The Pump app's 0.45% / 0.40% Platform Fee is not a pool fee and is not charged through Terminal or third-party interfaces. Keep it in route-cost accounting, not LP reserve math. For multi-hop routes, the current published rules charge the Protocol Fee on the first pool and Creator/Holder Rewards plus LP Fee on the final pool; interfaces that have not adopted the current program may charge on each hop.
+
+The adapter output must preserve both expected fee rates and actual confirmed fee amounts. Rates are used for simulation; confirmed amounts and raw/effective reserve deltas are used for reconciliation. Do not assume every fee is deducted from the same side or quote asset across all routes.
+
+
 See the official [PumpSwap documentation](https://github.com/pump-fun/pump-public-docs/blob/main/docs/PUMP_SWAP_README.md), [PumpSwap V2](https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/PUMP_SWAP_TRADE_V2.md), and [negative virtual quote reserve specification](https://github.com/pump-fun/pump-public-docs/blob/main/docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md).
 
 ## 4. LP changes and pool invariants
