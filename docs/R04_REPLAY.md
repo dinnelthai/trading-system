@@ -84,6 +84,7 @@ One JSON object per line. Raw token and quote quantities are integer atoms; neve
 | token_decimals / quote_decimals | Mint decimals |
 | source | Archive/indexer source identifier |
 | decoder_version | Version of the protocol decoder |
+| route_id / hop_index | Optional multi-hop route identity and zero-based hop order; supplied together on swap events only |
 
 ### Event types
 
@@ -128,6 +129,8 @@ For a V3 completing buy, normalize the emitted sequence separately:
 Do not combine the two buy legs into one curve swap. The synthetic pool leg is not a post-graduation PumpSwap trade.
 
 For PumpSwap V2, protocol and creator fees can remain in the quote vault while being excluded from pricing via signed virtual quote reserves. The replay's effective quote reserve must therefore be derived from both fields. Fee configuration and instruction version must be captured at the event's slot; do not assume the current fee schedule applies retroactively.
+
+PumpSwap multi_hop_swap instructions must be split into one normalized swap event per pool/curve hop. Preserve a shared route_id and the zero-based hop_index on each hop. Each hop is replayed against its own token/quote mint pair; route_id links the per-hop records without collapsing them into one synthetic trade.
 
 Official protocol references:
 - [Pump program and Bonding Curve](https://github.com/pump-fun/pump-public-docs/blob/main/docs/PUMP_PROGRAM_README.md)
