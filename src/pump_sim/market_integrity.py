@@ -172,6 +172,8 @@ class WalletActivity:
     buy_volume_quote: float
     sell_volume_quote: float
     gross_volume_quote: float
+    buy_base_amount: float
+    sell_base_amount: float
     gross_base_amount: float
     net_base_amount: float
     turnover_ratio: float
@@ -376,11 +378,10 @@ class MarketIntegrityAnalyzer:
         for wallet, wallet_tape in wallet_events.items():
             buys = math.fsum(_quote_notional(e) for e in wallet_tape if e.side == "buy")
             sells = math.fsum(_quote_notional(e) for e in wallet_tape if e.side == "sell")
-            gross_base = math.fsum(_base_amount(e) for e in wallet_tape)
-            net_base = math.fsum(
-                _base_amount(e) if e.side == "buy" else -_base_amount(e)
-                for e in wallet_tape
-            )
+            buy_base = math.fsum(_base_amount(e) for e in wallet_tape if e.side == "buy")
+            sell_base = math.fsum(_base_amount(e) for e in wallet_tape if e.side == "sell")
+            gross_base = buy_base + sell_base
+            net_base = buy_base - sell_base
             gross = buys + sells
             wallet_buy[wallet] = buys
             wallet_sell[wallet] = sells
@@ -392,9 +393,11 @@ class MarketIntegrityAnalyzer:
                     buy_volume_quote=buys,
                     sell_volume_quote=sells,
                     gross_volume_quote=gross,
+                    buy_base_amount=buy_base,
+                    sell_base_amount=sell_base,
                     gross_base_amount=gross_base,
                     net_base_amount=net_base,
-                    turnover_ratio=2.0 * min(buys, sells) / gross if gross > 0 else 0.0,
+                    turnover_ratio=_turnover_ratio(buy_base, sell_base),
                 )
             )
         wallet_activity.sort(key=lambda item: (-item.gross_volume_quote, item.wallet_id))
@@ -461,8 +464,10 @@ class MarketIntegrityAnalyzer:
             group_events = [event for wallet in wallets for event in wallet_events[wallet]]
             buys = math.fsum(_quote_notional(e) for e in group_events if e.side == "buy")
             sells = math.fsum(_quote_notional(e) for e in group_events if e.side == "sell")
+            buy_base = math.fsum(_base_amount(e) for e in group_events if e.side == "buy")
+            sell_base = math.fsum(_base_amount(e) for e in group_events if e.side == "sell")
             gross = buys + sells
-            turnover = _turnover_ratio(buys, sells)
+            turnover = _turnover_ratio(buy_base, sell_base)
             if gross >= self.config.min_cluster_volume_quote and turnover >= self.config.min_round_trip_turnover_ratio:
                 flags.append(
                     IntegrityFlag(
@@ -519,29 +524,33 @@ class MarketIntegrityAnalyzer:
     ) -> Optional[tuple[int, int, float, float]]:
         ordered = sorted(tape, key=lambda event: event.ordering_key)
         window: deque[CanonicalMarketEvent] = deque()
-        buy_volume = sell_volume = 0.0
+        buy_quote = sell_quote = buy_base = sell_base = 0.0
         for event in ordered:
             cutoff = event.timestamp - self.config.rapid_round_trip_window_s
             while window and window[0].timestamp < cutoff:
                 old = window.popleft()
                 if old.side == "buy":
-                    buy_volume -= _quote_notional(old)
+                    buy_quote -= _quote_notional(old)
+                    buy_base -= _base_amount(old)
                 else:
-                    sell_volume -= _quote_notional(old)
+                    sell_quote -= _quote_notional(old)
+                    sell_base -= _base_amount(old)
             window.append(event)
             if event.side == "buy":
-                buy_volume += _quote_notional(event)
+                buy_quote += _quote_notional(event)
+                buy_base += _base_amount(event)
             else:
-                sell_volume += _quote_notional(event)
-            gross = buy_volume + sell_volume
-            turnover = _turnover_ratio(buy_volume, sell_volume)
+                sell_quote += _quote_notional(event)
+                sell_base += _base_amount(event)
+            gross_quote = buy_quote + sell_quote
+            turnover = _turnover_ratio(buy_base, sell_base)
             if (
-                buy_volume > 0
-                and sell_volume > 0
-                and gross >= self.config.min_round_trip_volume_quote
+                buy_quote > 0
+                and sell_quote > 0
+                and gross_quote >= self.config.min_round_trip_volume_quote
                 and turnover >= self.config.min_round_trip_turnover_ratio
             ):
-                return window[0].timestamp, event.timestamp, gross, turnover
+                return window[0].timestamp, event.timestamp, gross_quote, turnover
         return None
 
     def _find_synchronized_burst(
