@@ -76,7 +76,7 @@ A sell of \(\Delta x\) returns gross quote:
 q_g = y - \frac{xy}{x+\Delta x}
 \]
 
-The sell is capped by accumulated real quote reserves. Fees are tracked separately. Graduation occurs when the configured real quote reserve threshold is reached. The remaining real token and quote reserves seed the post-graduation pool.
+The sell is capped by accumulated real quote reserves. Fees are tracked separately. Graduation occurs when the configured real quote reserve threshold is reached. The remaining real token and quote reserves seed the post-graduation pool. The simulator records the pre/post migration price gap rather than silently smoothing over a discontinuity.
 
 ### Post-graduation pool
 
