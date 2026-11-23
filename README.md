@@ -94,13 +94,17 @@ For descriptive swap-only statistics, normalize trades to the schema in `docs/CA
 
     pump-calibrate --input data/swaps.csv --out results/calibration.json
 
+To probe a mint's token program, Token-2022 extensions, decimals, supply, and candidate history range, run:
+
+    solana-token-probe --mint TOKEN_MINT --out data/mint_probe.json
+
 To export raw finalized Solana blocks while preserving transaction order, set `SOLANA_RPC_URL` and run:
 
     solana-block-export --start-slot START_SLOT --end-slot END_SLOT --out data/raw_transactions.jsonl
 
 See `docs/SOLANA_ARCHIVE.md` for archive requirements and the decoder gate.
 
-For deterministic event replay, normalize swaps, liquidity changes, migration, and state snapshots to the v1.0 JSONL contract in `docs/R04_REPLAY.md`, then run:
+For deterministic event replay, normalize swaps, liquidity changes, migration, and state snapshots to the v1.x JSONL contract in `docs/R04_REPLAY.md`, then run:
 
     pump-replay --input data/normalized_events.jsonl --out results/replay.json
 
