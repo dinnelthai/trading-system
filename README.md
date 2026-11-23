@@ -24,7 +24,7 @@ Each agent has its own wallet, traits, private random stream, activity clock, la
 - Configurable pool fee split between LP accrual and protocol fees.
 - Initial migration LP shares can be marked locked.
 - External reference price follows a stochastic regime process; the external venue has finite token inventory and quote reserves.
-- Independent Poisson-style agent activation, noisy private signals, random order latency, simulated block settlement, and randomized priority.
+- Continuous-time Poisson-style agent activation, independent private signals, role-specific heavy-tailed wallet capital, random order latency, simulated block settlement, and randomized priority.
 - Quiet / hype / stress / recovery regimes transition probabilistically. No pre-scripted pump-and-dump sequence.
 - True execution candles are separated from observed feed candles. Feed latency, drops, and duplicate deliveries can create chart-observation errors without creating fake true trades.
 
@@ -41,9 +41,15 @@ Run one simulation:
 
     python -m pump_sim --config configs/default.json --out results/run.json
 
-Run 100 independent seeds:
+Run 100 independent seeds and export one CSV row per market path:
 
-    python -m pump_sim --config configs/default.json --runs 100 --out results/monte-carlo.json
+    python -m pump_sim --config configs/default.json --runs 100 --csv-out results/runs.csv --summary-only --out results/monte-carlo-summary.json
+
+Run the 500-path baseline locally:
+
+    python -m pump_sim --config configs/default.json --runs 500 --csv-out results/baseline-runs.csv --summary-only --out results/baseline-summary.json
+
+A manual GitHub Actions workflow (`baseline-simulation`) also runs the 500-path baseline and uploads its JSON/CSV results as an artifact. It becomes manually triggerable after this workflow is merged into the default branch.
 
 Sweep one parameter across scenarios, with 100 seeds per value:
 
@@ -72,7 +78,7 @@ The simulator reports distributions, participant-level outcomes, concentration, 
 
 ## Empirical calibration
 
-Normalize on-chain swaps to the schema in \`docs/CALIBRATION.md\`, then run:
+Normalize on-chain swaps to the schema in `docs/CALIBRATION.md`, then run:
 
     pump-calibrate --input data/swaps.csv --out results/calibration.json
 
