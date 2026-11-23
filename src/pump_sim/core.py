@@ -321,59 +321,286 @@ class CandleBuilder:
 
 
 class BondingCurve:
-    def __init__(self, virtual_tokens: float, virtual_quote: float, real_tokens: float, fee_bps: float, migration_tokens: float = 0.0):
-        self.virtual_tokens = virtual_tokens
-        self.virtual_quote = virtual_quote
-        self.real_tokens = real_tokens
-        self.token_account_balance = real_tokens + migration_tokens
+    def __init__(
+        self,
+        virtual_tokens: float,
+        virtual_quote: float,
+        real_tokens: float,
+        fee_bps: float,
+        migration_tokens: float = 0.0,
+        creator_fee_bps: float = 0.0,
+        buyback_fee_bps: float = 0.0,
+        total_supply: float = 1_000_000_000.0,
+        fee_tiers: Optional[List[Dict[str, float]]] = None,
+        retain_fees: bool = True,
+        synthetic_migration: bool = True,
+        migration_fee_quote: float = 0.0,
+    ):
+        self.virtual_tokens = float(virtual_tokens)
+        self.virtual_quote = float(virtual_quote)
+        self.real_tokens = float(real_tokens)
+        self.initial_real_tokens = float(real_tokens)
+        self.token_account_balance = float(real_tokens + migration_tokens)
         self.real_quote = 0.0
-        self.fee_rate = fee_bps / 10_000.0
+        self.protocol_fee_bps = float(fee_bps)
+        self.creator_fee_bps = float(creator_fee_bps)
+        self.buyback_fee_bps = float(buyback_fee_bps)
+        self.total_supply = float(total_supply)
+        self.fee_tiers = list(fee_tiers or [])
+        self.retain_fees = bool(retain_fees)
+        self.synthetic_migration = bool(synthetic_migration)
+        self.migration_fee_quote = float(migration_fee_quote)
         self.fees_collected = 0.0
+        self.protocol_fees_pending = 0.0
+        self.creator_fees_pending = 0.0
+        self.protocol_fees_paid = 0.0
+        self.creator_fees_paid = 0.0
+        self.buyback_fees_paid = 0.0
+        self.post_complete_base_out = 0.0
+        self.post_complete_quote_in = 0.0
+        self.complete = False
+        self.migrated = False
 
     @property
     def price(self) -> float:
         return self.virtual_quote / max(self.virtual_tokens, EPS)
 
-    def buy(self, quote_in: float) -> Execution:
-        if quote_in <= 0 or self.real_tokens <= EPS:
+    @property
+    def fee_rate(self) -> float:
+        return self.fee_rates().total_rate
+
+    @property
+    def market_cap_quote(self) -> float:
+        return curve_market_cap_quote(self.virtual_tokens, self.virtual_quote, self.total_supply)
+
+    @property
+    def fee_vault_quote(self) -> float:
+        return self.protocol_fees_pending + self.creator_fees_pending
+
+    @property
+    def account_quote_balance(self) -> float:
+        return self.real_quote + self.fee_vault_quote
+
+    @property
+    def fees_paid_out_quote(self) -> float:
+        return self.protocol_fees_paid + self.creator_fees_paid + self.buyback_fees_paid
+
+    def fee_rates(self):
+        return select_curve_fee_rates(
+            market_cap_quote=self.market_cap_quote,
+            fallback_protocol_fee_bps=self.protocol_fee_bps,
+            fallback_creator_fee_bps=self.creator_fee_bps,
+            fallback_buyback_fee_bps=self.buyback_fee_bps,
+            fee_tiers=self.fee_tiers,
+        )
+
+    def _book_fees(self, fee_base_quote: float, rates) -> Tuple[float, float, float]:
+        protocol_fee, creator_fee, buyback_fee = fees_on_net_quote(fee_base_quote, rates)
+        self.fees_collected += protocol_fee + creator_fee
+        if self.retain_fees:
+            self.protocol_fees_pending += protocol_fee - buyback_fee
+            self.creator_fees_pending += creator_fee
+        else:
+            self.protocol_fees_paid += protocol_fee - buyback_fee
+            self.creator_fees_paid += creator_fee
+        self.buyback_fees_paid += buyback_fee
+        return protocol_fee, creator_fee, buyback_fee
+
+    def _apply_curve_buy_leg(self, net_quote: float, token_out: float, rates) -> Tuple[float, float, float]:
+        fees = self._book_fees(net_quote, rates)
+        self.virtual_tokens -= token_out
+        self.virtual_quote += net_quote
+        self.real_tokens = max(0.0, self.real_tokens - token_out)
+        self.token_account_balance -= token_out
+        self.real_quote += net_quote
+        if self.real_tokens <= EPS:
+            self.real_tokens = 0.0
+            self.complete = True
+        return fees
+
+    def _apply_synthetic_pool_buy_leg(self, net_quote: float, token_out: float, rates) -> Tuple[float, float, float]:
+        fees = self._book_fees(net_quote, rates)
+        self.token_account_balance -= token_out
+        self.post_complete_base_out += token_out
+        self.post_complete_quote_in += net_quote
+        return fees
+
+    def quote_buy_exact_tokens(self, token_out: float, allow_synthetic_migration: Optional[bool] = None) -> float:
+        if token_out <= 0 or self.complete or self.real_tokens <= EPS:
+            return 0.0
+        synthetic = self.synthetic_migration if allow_synthetic_migration is None else allow_synthetic_migration
+        curve_tokens = min(token_out, self.real_tokens)
+        curve_rates = self.fee_rates()
+        curve_net = curve_buy_net_quote(self.virtual_tokens, self.virtual_quote, curve_tokens)
+        total_gross = gross_quote_for_net(curve_net, curve_rates)
+        extra_tokens = token_out - curve_tokens
+        if extra_tokens <= EPS:
+            return total_gross
+        if not synthetic:
+            raise ValueError("requested token amount exceeds remaining curve inventory")
+        post_curve_tokens = self.virtual_tokens - curve_tokens
+        post_curve_quote = self.virtual_quote + curve_net
+        pool_base = self.token_account_balance - curve_tokens
+        pool_quote = self.real_quote + curve_net - self.migration_fee_quote
+        if pool_base <= EPS or pool_quote <= EPS or extra_tokens >= pool_base:
+            raise ValueError("synthetic migration pool cannot satisfy requested token amount")
+        pool_rates = select_curve_fee_rates(
+            market_cap_quote=curve_market_cap_quote(post_curve_tokens, post_curve_quote, self.total_supply),
+            fallback_protocol_fee_bps=self.protocol_fee_bps,
+            fallback_creator_fee_bps=self.creator_fee_bps,
+            fallback_buyback_fee_bps=self.buyback_fee_bps,
+            fee_tiers=self.fee_tiers,
+        )
+        pool_net = constant_product_buy_net_quote(pool_base, pool_quote, extra_tokens)
+        return total_gross + gross_quote_for_net(pool_net, pool_rates)
+
+    def buy_exact_tokens(
+        self,
+        token_out: float,
+        max_quote_in: Optional[float] = None,
+        allow_synthetic_migration: Optional[bool] = None,
+    ) -> Execution:
+        required = self.quote_buy_exact_tokens(token_out, allow_synthetic_migration)
+        if required <= EPS or (max_quote_in is not None and required > max_quote_in + EPS):
             return Execution(0.0, 0.0, 0.0)
-        net = quote_in * (1.0 - self.fee_rate)
-        k = self.virtual_tokens * self.virtual_quote
-        token_out = self.virtual_tokens - k / (self.virtual_quote + net)
-        gross_used = quote_in
-        fee = quote_in - net
-        if token_out > self.real_tokens:
-            token_out = self.real_tokens
-            net = self.virtual_quote * token_out / max(self.virtual_tokens - token_out, EPS)
-            gross_used = net / max(1.0 - self.fee_rate, EPS)
-            fee = gross_used - net
+        return self.buy(required, allow_synthetic_migration)
+
+    def preview_buy(self, quote_in: float, allow_synthetic_migration: Optional[bool] = None) -> float:
+        preview = copy.copy(self)
+        return preview.buy(quote_in, allow_synthetic_migration).amount_out
+
+    def preview_sell(self, token_in: float) -> float:
+        preview = copy.copy(self)
+        return preview.sell(token_in).amount_out
+
+    def buy(self, quote_in: float, allow_synthetic_migration: Optional[bool] = None) -> Execution:
+        synthetic = self.synthetic_migration if allow_synthetic_migration is None else allow_synthetic_migration
+        if quote_in <= 0 or self.real_tokens <= EPS or self.complete:
+            return Execution(0.0, 0.0, 0.0)
+
+        curve_rates = self.fee_rates()
+        remaining_curve_tokens = self.real_tokens
+        curve_net_required = curve_buy_net_quote(
+            self.virtual_tokens, self.virtual_quote, remaining_curve_tokens
+        )
+        curve_gross_required = gross_quote_for_net(curve_net_required, curve_rates)
+
+        # V3-style synthetic migration: the completing buy first exhausts the
+        # curve, then spends any remaining budget against the pool-to-be.
+        if synthetic and quote_in + EPS >= curve_gross_required:
+            curve_protocol, curve_creator, curve_buyback = self._apply_curve_buy_leg(
+                curve_net_required, remaining_curve_tokens, curve_rates
+            )
+            gross_used = curve_gross_required
+            total_protocol = curve_protocol
+            total_creator = curve_creator
+            total_buyback = curve_buyback
+            total_fee = curve_protocol + curve_creator
+            pool_net = 0.0
+            pool_gross = 0.0
+            pool_token_out = 0.0
+            remaining_budget = max(0.0, quote_in - curve_gross_required)
+
+            if remaining_budget > EPS:
+                pool_rates = self.fee_rates()
+                pool_base = self.token_account_balance
+                pool_quote = max(0.0, self.real_quote - self.migration_fee_quote)
+                pool_net = net_quote_from_spendable(remaining_budget, pool_rates)
+                if pool_base > EPS and pool_quote > EPS and pool_net > EPS:
+                    pool_token_out = constant_product_buy_token_out(pool_base, pool_quote, pool_net)
+                    if pool_token_out > EPS and pool_token_out < pool_base:
+                        pool_gross = gross_quote_for_net(pool_net, pool_rates)
+                        protocol, creator, buyback = self._apply_synthetic_pool_buy_leg(
+                            pool_net, pool_token_out, pool_rates
+                        )
+                        total_protocol += protocol
+                        total_creator += creator
+                        total_buyback += buyback
+                        total_fee += protocol + creator
+                        gross_used += pool_gross
+                    else:
+                        pool_net = 0.0
+                        pool_token_out = 0.0
+
+            return Execution(
+                gross_used,
+                remaining_curve_tokens + pool_token_out,
+                total_fee,
+                total_protocol,
+                total_creator,
+                total_buyback,
+                curve_net_required,
+                curve_gross_required,
+                pool_net,
+                pool_gross,
+                pool_token_out,
+            )
+
+        # Legacy/partial-fill path, or a V3 buy that does not yet complete the curve.
+        net_budget = net_quote_from_spendable(quote_in, curve_rates)
+        token_out = min(
+            remaining_curve_tokens,
+            curve_buy_token_out(self.virtual_tokens, self.virtual_quote, net_budget),
+        )
+        if token_out >= remaining_curve_tokens - EPS:
+            token_out = remaining_curve_tokens
+            net_used = curve_net_required
+        else:
+            net_used = net_budget
+        gross_used = gross_quote_for_net(net_used, curve_rates)
         if token_out <= EPS or gross_used <= EPS:
             return Execution(0.0, 0.0, 0.0)
-        self.virtual_tokens -= token_out
-        self.virtual_quote += net
-        self.real_tokens -= token_out
-        self.token_account_balance -= token_out
-        self.real_quote += net
-        self.fees_collected += fee
-        return Execution(gross_used, token_out, fee)
+        protocol, creator, buyback = self._apply_curve_buy_leg(net_used, token_out, curve_rates)
+        return Execution(
+            gross_used,
+            token_out,
+            protocol + creator,
+            protocol,
+            creator,
+            buyback,
+            net_used,
+            gross_used,
+        )
 
     def sell(self, token_in: float) -> Execution:
-        if token_in <= 0 or self.real_quote <= EPS:
+        if token_in <= 0 or self.real_quote <= EPS or self.complete:
             return Execution(0.0, 0.0, 0.0)
-        max_tokens = self.real_quote * self.virtual_tokens / max(self.virtual_quote - self.real_quote, EPS)
+        denominator = self.virtual_quote - self.real_quote
+        if denominator <= EPS:
+            return Execution(0.0, 0.0, 0.0)
+        max_tokens = self.real_quote * self.virtual_tokens / denominator
         token_used = min(token_in, max_tokens)
         if token_used <= EPS:
             return Execution(0.0, 0.0, 0.0)
-        gross_quote = self.virtual_quote * token_used / (self.virtual_tokens + token_used)
-        fee = gross_quote * self.fee_rate
-        net_quote = gross_quote - fee
+        gross_quote = curve_sell_gross_quote(self.virtual_tokens, self.virtual_quote, token_used)
+        rates = self.fee_rates()
+        protocol, creator, buyback = self._book_fees(gross_quote, rates)
+        net_quote = gross_quote - protocol - creator
         self.virtual_tokens += token_used
         self.virtual_quote -= gross_quote
         self.real_tokens += token_used
         self.token_account_balance += token_used
         self.real_quote -= gross_quote
-        self.fees_collected += fee
-        return Execution(token_used, net_quote, fee)
+        if self.real_quote < EPS:
+            self.real_quote = 0.0
+        return Execution(
+            token_used,
+            net_quote,
+            protocol + creator,
+            protocol,
+            creator,
+            buyback,
+        )
+
+    def buy_depth_quote(self, price_impact: float) -> float:
+        return curve_buy_depth_quote(
+            self.virtual_tokens, self.virtual_quote, self.real_tokens, price_impact
+        )
+
+    def sell_depth_quote(self, price_impact: float) -> float:
+        return curve_sell_depth_quote(
+            self.virtual_tokens, self.virtual_quote, self.real_quote, price_impact
+        )
 
 
 class ConstantProductPool:
