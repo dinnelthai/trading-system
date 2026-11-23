@@ -32,13 +32,20 @@ def event(
     actor="",
     route_id="",
     hop_index=None,
+    schema_version="1.0",
+    token_program_id="",
+    quote_token_program_id="",
+    token_extension_snapshot_id="",
+    token_transfer_fee_raw=0,
+    quote_transfer_fee_raw=0,
+    transfer_hook_invoked=None,
     quote_vault_before=None,
     quote_vault_after=None,
     virtual_quote_before=None,
     virtual_quote_after=None,
 ):
     return {
-        "schema_version": "1.0",
+        "schema_version": schema_version,
         "event_id": event_id,
         "token_address": TOKEN,
         "quote_mint": QUOTE,
@@ -56,6 +63,12 @@ def event(
         "quote_decimals": 9,
         "source": "solana_archive_fixture",
         "decoder_version": "fixture-v1",
+        "token_program_id": token_program_id,
+        "quote_token_program_id": quote_token_program_id,
+        "token_extension_snapshot_id": token_extension_snapshot_id,
+        "token_transfer_fee_raw": token_transfer_fee_raw,
+        "quote_transfer_fee_raw": quote_transfer_fee_raw,
+        "transfer_hook_invoked": transfer_hook_invoked,
         "actor_wallet": actor,
         "owner_wallet": owner,
         "position_id": position,
@@ -559,3 +572,89 @@ def test_repository_synthetic_jsonl_example_runs_through_the_replay_engine():
     assert report["event_counts"]["post_complete_buy"] == 1
     assert report["event_counts"]["liquidity_add"] == 1
     assert report["final_reserves"]["pump_swap_pool"]["virtual_quote_reserve_raw"] == -3_000_000_000
+
+
+def test_replay_preserves_token_2022_program_and_transfer_extension_metadata():
+    token_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    classic = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    trade = event(
+        "token-2022-trade",
+        "curve_swap",
+        schema_version="1.1",
+        side="buy",
+        token_amount_raw=100,
+        quote_amount_raw=200,
+        token_program_id=token_2022,
+        quote_token_program_id=classic,
+        token_extension_snapshot_id="mint-state-slot-123",
+        token_transfer_fee_raw=3,
+        quote_transfer_fee_raw=0,
+        transfer_hook_invoked=True,
+        base_before=1_000,
+        quote_before=1_000,
+        base_after=900,
+        quote_after=1_200,
+        actor="wallet-a",
+    )
+    report = replay_events(normalize_events([trade]))
+
+    assert report["token_metadata"]["token_program_ids"] == [token_2022]
+    assert report["token_metadata"]["quote_token_program_ids"] == [classic]
+    assert report["token_metadata"]["extension_snapshot_ids"] == ["mint-state-slot-123"]
+    assert report["token_metadata"]["token_transfer_fee_raw"] == 3
+    assert report["token_metadata"]["transfer_hook_event_count"] == 1
+
+
+def test_normalizer_rejects_inconsistent_token_program_ids_across_one_stream():
+    token_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    classic = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    first = event(
+        "program-a",
+        "curve_swap",
+        schema_version="1.1",
+        side="buy",
+        token_amount_raw=1,
+        quote_amount_raw=1,
+        token_program_id=token_2022,
+        base_before=100,
+        quote_before=100,
+        base_after=99,
+        quote_after=101,
+        actor="wallet-a",
+    )
+    second = event(
+        "program-b",
+        "curve_swap",
+        tx=1,
+        schema_version="1.1",
+        side="buy",
+        token_amount_raw=1,
+        quote_amount_raw=1,
+        token_program_id=classic,
+        base_before=99,
+        quote_before=101,
+        base_after=98,
+        quote_after=102,
+        actor="wallet-b",
+    )
+    with pytest.raises(ValueError, match="inconsistent token_program_id"):
+        normalize_events([first, second])
+
+
+def test_normalizer_rejects_non_boolean_transfer_hook_metadata():
+    invalid = event(
+        "bad-transfer-hook",
+        "curve_swap",
+        schema_version="1.1",
+        side="buy",
+        token_amount_raw=1,
+        quote_amount_raw=1,
+        transfer_hook_invoked="maybe",
+        base_before=100,
+        quote_before=100,
+        base_after=99,
+        quote_after=101,
+        actor="wallet-a",
+    )
+    with pytest.raises(ValueError, match="transfer_hook_invoked must be a boolean"):
+        normalize_events([invalid])
