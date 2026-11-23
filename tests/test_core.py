@@ -46,18 +46,97 @@ def test_constant_product_pool_accrues_lp_fees_in_reserves():
 
 
 def test_curve_migrates_when_real_token_inventory_is_exhausted_with_continuous_price():
-    engine = SimulationEngine(SimConfig())
+    engine = SimulationEngine(SimConfig(curve_synthetic_migration=False))
     execution = engine.market.buy(1_000.0)
     assert execution.amount_out == pytest.approx(793_100_000.0)
+    assert execution.amount_in < 1_000.0
     assert engine.market.curve.real_tokens == pytest.approx(0.0, abs=1e-5)
     assert engine.market.curve.token_account_balance == pytest.approx(206_900_000.0)
+    assert engine.market.curve.real_quote == pytest.approx(85.0053590568)
+    assert engine.market.curve.fee_vault_quote > 0
     assert engine.market.maybe_migrate(12.0)
     assert engine.market.phase.value == "pump_swap_pool"
     assert engine.market.pool is not None
     assert engine.market.pool.token_reserve == pytest.approx(206_900_000.0)
-    assert engine.market.pool.quote_reserve == pytest.approx(engine.market.curve.real_quote - 0.015000001)
+    assert engine.market.pool.quote_reserve == pytest.approx(85.0053590568 - 0.015000001)
+    assert engine.market.curve.real_quote == pytest.approx(0.0)
+    assert engine.market.curve.account_quote_balance == pytest.approx(engine.market.curve.fee_vault_quote)
     assert abs(engine.market.migration_price_gap_bps) < 3.0
     assert engine.market.initial_lp_locked_shares > 0
+
+
+def test_v3_completing_buy_can_buy_from_the_pool_to_be_before_migration():
+    engine = SimulationEngine(SimConfig(curve_synthetic_migration=True))
+    execution = engine.market.buy(100.0)
+
+    assert execution.amount_out > engine.config.curve_real_token_reserve
+    assert execution.amount_in == pytest.approx(100.0)
+    assert execution.synthetic_pool_quote_reserve_in > 0
+    assert execution.synthetic_pool_gross_quote_in > 0
+    assert execution.synthetic_pool_token_out > 0
+    assert engine.market.curve.complete
+    assert engine.market.curve.token_account_balance == pytest.approx(
+        engine.market.curve_migration_token_reserve - execution.synthetic_pool_token_out
+    )
+
+    expected_pool_quote = (
+        engine.market.curve.real_quote
+        - engine.config.pool_migration_fee_quote
+        + execution.synthetic_pool_quote_reserve_in
+    )
+    expected_pool_tokens = engine.market.curve.token_account_balance
+    assert engine.market.maybe_migrate(1.0)
+    assert engine.market.pool is not None
+    assert engine.market.pool.quote_reserve == pytest.approx(expected_pool_quote)
+    assert engine.market.pool.token_reserve == pytest.approx(expected_pool_tokens)
+    assert engine.market.curve.real_quote == pytest.approx(0.0)
+    assert engine.market.curve.fee_vault_quote > 0
+    assert abs(engine.market.migration_price_gap_bps) < 1e-6
+
+
+def test_curve_sell_is_capped_by_real_quote_reserve_and_fee_vault_is_not_liquidity():
+    curve = BondingCurve(
+        1_000_000_000.0, 100.0, 500_000_000.0, 100.0,
+        creator_fee_bps=25.0, retain_fees=True, synthetic_migration=False,
+    )
+    bought = curve.buy(10.0)
+    assert bought.amount_out > 0
+    reserve_before = curve.real_quote
+    max_tokens = reserve_before * curve.virtual_tokens / (curve.virtual_quote - reserve_before)
+
+    sold = curve.sell(max_tokens * 2.0)
+    assert sold.amount_in == pytest.approx(max_tokens)
+    assert sold.amount_out > 0
+    assert curve.real_quote == pytest.approx(0.0, abs=1e-9)
+    assert curve.fee_vault_quote > 0
+    assert curve.account_quote_balance == pytest.approx(curve.fee_vault_quote)
+
+
+def test_order_with_stale_quote_reverts_when_slippage_exceeds_tolerance():
+    config = SimConfig(
+        duration_s=2,
+        default_slippage_tolerance_bps=1.0,
+        n_snipers=0, n_kols=0, n_arbitrageurs=0, n_retail=1,
+        n_whales=0, n_lp_providers=0, n_mev_risk_agents=0,
+    )
+    engine = SimulationEngine(config)
+    retail = next(agent for agent in engine.agents if agent.kind == "retail")
+    retail.account.quote = 1.0
+    retail.traits.slippage_tolerance_bps = 1.0
+    action = Action("buy", amount=0.5)
+    engine._schedule(retail, action, 0.0)
+    block_time, _, _, _, queued_action = engine.order_queue.pop()
+
+    engine.market.buy(5.0)
+    quote_before = retail.account.quote
+    tokens_before = retail.account.tokens
+    engine._execute(retail, queued_action, block_time)
+
+    assert engine.slippage_reverts == 1
+    assert engine.orders_submitted == 1
+    assert engine.orders_executed == 0
+    assert retail.account.quote == pytest.approx(quote_before)
+    assert retail.account.tokens == pytest.approx(tokens_before)
 
 
 def test_seeded_run_is_reproducible():
