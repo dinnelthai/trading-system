@@ -406,6 +406,11 @@ class Agent:
             return None
 
         if self.kind == "lp_provider":
+            if self.account.tokens <= EPS and self.account.quote > 0.1:
+                if s.phase == Phase.CURVE and s.curve_progress > 0.10 and s.volatility < 0.05 and self.rng.random() < 0.35:
+                    return Action("buy", amount=self.account.quote * self.rng.uniform(0.08, 0.20))
+                if s.phase == Phase.POOL and s.recent_volume > 0.05 and self.rng.random() < 0.25:
+                    return Action("buy", amount=self.account.quote * self.rng.uniform(0.08, 0.20))
             if s.phase == Phase.POOL and self.account.lp_shares <= EPS and self.account.tokens > 1.0 and self.account.quote > 0.05:
                 fee_yield_proxy = s.recent_volume / max(s.depth_quote, 0.1) * 0.003
                 inventory_risk = s.volatility * self.traits.risk_aversion
