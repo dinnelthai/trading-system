@@ -40,6 +40,7 @@ class SimConfig:
     dev_lp_quote_budget: float = 10.0
     external_fee_bps: float = 8.0
     external_depth_quote: float = 50.0
+    external_initial_token_reserve: float = 100_000_000.0
 
     n_snipers: int = 12
     n_kols: int = 3
@@ -64,7 +65,7 @@ class SimConfig:
             raise ValueError("block_interval_s and candle_interval_s must be positive")
         if not 0 <= self.curve_fee_bps < 10_000 or not 0 <= self.pool_fee_bps < 10_000:
             raise ValueError("AMM fee bps must be in [0, 10000)")
-        if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve > self.total_supply:
+        if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.external_initial_token_reserve > self.total_supply:
             raise ValueError("initial token allocations exceed total_supply")
         if not 0 <= self.dev_locked_fraction <= 1:
             raise ValueError("dev_locked_fraction must be in [0, 1]")
@@ -442,8 +443,11 @@ class Market:
         self.initial_lp_locked_shares = 0.0
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
+        self.external_token_reserve = config.external_initial_token_reserve
+        initial_price = config.curve_virtual_quote_reserve / max(config.curve_virtual_token_reserve, EPS)
+        self.external_quote_reserve = self.external_token_reserve * initial_price
         dev_unlocked = config.dev_allocation * (1.0 - config.dev_locked_fraction)
-        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - config.curve_real_token_reserve)
+        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - config.curve_real_token_reserve - self.external_token_reserve)
 
     @property
     def price(self) -> float:
@@ -454,6 +458,21 @@ class Market:
         if self.phase == Phase.CURVE:
             return max(0.1, self.curve.virtual_quote_reserve * 0.10)
         return max(0.1, self.pool.quote_reserve * 0.10)  # type: ignore[union-attr]
+
+    def preview_buy(self, quote_in: float) -> float:
+        if quote_in <= 0:
+            return 0.0
+        if self.phase == Phase.CURVE:
+            if self.curve.real_tokens <= EPS:
+                return 0.0
+            net = quote_in * (1.0 - self.curve.fee_rate)
+            k = self.curve.virtual_tokens * self.curve.virtual_quote
+            return min(self.curve.real_tokens, self.curve.virtual_tokens - k / (self.curve.virtual_quote + net))
+        pool = self.pool
+        if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
+            return 0.0
+        net = quote_in * (1.0 - pool.fee_rate)
+        return pool.token_reserve * net / (pool.quote_reserve + net)
 
     def buy(self, quote_in: float) -> Execution:
         if self.phase == Phase.CURVE:
@@ -679,13 +698,22 @@ class SimulationEngine:
             return
 
         if action.kind == "arb_buy_local":
-            quote_in = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
+            quote_in = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20, self.market.external_quote_reserve)
+            external_fee_rate = self.config.external_fee_bps / 10_000.0
+            for _ in range(24):
+                expected_tokens = self.market.preview_buy(quote_in)
+                expected_proceeds = expected_tokens * self.reference_price * (1.0 - external_fee_rate)
+                if expected_proceeds <= self.market.external_quote_reserve + EPS:
+                    break
+                quote_in *= 0.5
             if quote_in > EPS:
                 execution = self.market.buy(quote_in)
                 if execution.amount_out > EPS:
                     external_gross = execution.amount_out * self.reference_price
-                    external_fee = external_gross * self.config.external_fee_bps / 10_000.0
+                    external_fee = external_gross * external_fee_rate
                     external_proceeds = external_gross - external_fee
+                    self.market.external_quote_reserve = max(0.0, self.market.external_quote_reserve - external_proceeds)
+                    self.market.external_token_reserve += execution.amount_out
                     agent.account.quote += external_proceeds - execution.amount_in
                     agent.account.realized_pnl += external_proceeds - execution.amount_in
                     agent.account.fees_paid += execution.fee + external_fee
@@ -695,12 +723,14 @@ class SimulationEngine:
         elif action.kind == "arb_sell_local":
             quote_budget = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
             external_fee_rate = self.config.external_fee_bps / 10_000.0
-            token_in = quote_budget / max(self.reference_price * (1.0 + external_fee_rate), EPS)
+            token_in = min(quote_budget / max(self.reference_price * (1.0 + external_fee_rate), EPS), self.market.external_token_reserve * 0.20)
             external_cost = token_in * self.reference_price * (1.0 + external_fee_rate)
             if token_in > EPS and external_cost <= agent.account.quote:
                 execution = self.market.sell(token_in)
                 if execution.amount_in > EPS and execution.amount_out > EPS:
                     external_cost_used = execution.amount_in * self.reference_price * (1.0 + external_fee_rate)
+                    self.market.external_token_reserve -= execution.amount_in
+                    self.market.external_quote_reserve += external_cost_used
                     agent.account.quote += execution.amount_out - external_cost_used
                     agent.account.realized_pnl += execution.amount_out - external_cost_used
                     agent.account.fees_paid += execution.fee + external_cost_used - execution.amount_in * self.reference_price
@@ -842,6 +872,8 @@ class SimulationEngine:
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
             "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
             "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
+            "external_token_reserve": self.market.external_token_reserve,
+            "external_quote_reserve": self.market.external_quote_reserve,
             "initial_lp_locked_shares": self.market.initial_lp_locked_shares,
             "lp_fees_quote": self.market.pool.lp_fees_collected if self.market.pool else 0.0,
             "pool_protocol_fees_quote": self.market.pool.protocol_fees_collected if self.market.pool else 0.0,
