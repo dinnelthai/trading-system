@@ -2,7 +2,7 @@
 
 **Document type:** Decision architecture and mathematical research specification  
 **Version:** 0.4  
-**Status:** Architecture and fixed-CPMM transition baseline defined; protocol validation, solver design and simulation validation remain open  
+**Status:** Architecture and fixed-CPMM transition baseline defined; a pure risk-prioritized action-arbitration subset is implemented; canonical state-version control, proposal bundles, protocol validation, solver design and simulation validation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Primary venue:** Fixed PumpSwap CPMM pool  
 **Strategy scope:** Initial liquidity, proportional LP add/remove, spot inventory, Dev treasury exit and capital-risk management
@@ -665,3 +665,22 @@ Before using these equations in production code, verify against the deployed Pum
 - Actual wallet and LP claim deltas from confirmed transactions.
 
 A unit test must reconcile predicted and observed reserve, LP-share and wallet-balance changes for both ADD and REMOVE. Any mismatch blocks use of the analytical formula for live sizing.
+
+
+---
+
+## 16. Current executable reference implementation
+
+The first executable arbitration subset is in `src/pump_sim/orchestrator.py`.
+
+Implemented:
+- typed lifecycle, horizon and action enums;
+- integrity, data freshness, accounting and operating-reserve hard gates;
+- risk-prioritized REMOVE or PAUSE behavior;
+- market-quality and minimum-depth vetoes;
+- authorization and post-withdrawal market-quality checks;
+- fast-horizon observe-only behavior for ordinary LP changes;
+- strategic capital-budget approval for ADD;
+- time-persistent boolean hysteresis.
+
+This is not yet the complete MMDO described above. It does not implement engine proposal bundles, canonical state-version locking, action compatibility optimization, pre-trade simulation, risk-engine signatures, execution, or post-trade reconciliation. The current code returns an auditable recommendation only and never submits a transaction.
