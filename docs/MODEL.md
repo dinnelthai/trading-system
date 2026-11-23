@@ -75,25 +75,35 @@ The Pump public program documentation describes the bonding curve as a constant-
 
 ### Bonding curve
 
-The curve uses virtual reserves \(x\) (token) and \(y\) (quote), with \(k=xy\). The simulator calculates protocol and creator fees separately, supports market-cap fee tiers, and keeps V3 protocol/creator fees in a separate pending-fee vault. For a continuous all-in quote budget \(G\) and combined rate \(r\), the reserve input is \(N=G/(1+r)\), so the reserve input excludes fee balances.
+The curve uses virtual reserves \(x\) (token) and \(y\) (quote), with \(k=xy\). The simulator calculates protocol and creator fees separately, supports market-cap fee tiers, and keeps V3 protocol/creator fees in a separate pending-fee vault. For a continuous all-in quote budget \(G\) and combined rate \(r\), the reserve input is \(N=G/(1+r)\).
+
+A buy receives:
 
 \[
-\Delta x = x - \frac{xy}{y+q_n}
+\Delta x = \frac{xN}{y+N}
 \]
 
-A sell of \(\Delta x\) returns gross quote:
+A sell of \(\Delta x\) removes gross quote from the real reserve:
 
 \[
-q_g = y - \frac{xy}{x+\Delta x}
+q_g = \frac{y\Delta x}{x+\Delta x}
 \]
 
-The sell is capped by accumulated real quote reserves. The model separately tracks:
+The seller receives gross quote less protocol and creator fees. The curve sell is capped by real quote reserves:
+
+\[
+\Delta x_{max}=\frac{R_Qx}{y-R_Q}
+\]
+
+The model separately tracks:
 - virtual token / quote reserves used for price calculation;
 - real token reserves available to curve buyers;
-- the full token-account balance, including tokens reserved for migration;
-- real quote reserves accumulated by curve trades.
+- the full token-account balance, including migration inventory;
+- real quote reserves available to fund sells;
+- pending protocol and creator fees, which are not LP liquidity;
+- the immediate buyback-fee outflow.
 
-The expected real quote reserve at completion is approximately 85 SOL for the default reserve snapshot. This is a diagnostic target, **not** the graduation trigger.
+The expected real quote reserve at curve completion is approximately 85 SOL for the default reserve snapshot. This is a diagnostic target, **not** the graduation trigger.
 
 ### Graduation and migration
 
@@ -102,6 +112,8 @@ Graduation is triggered when `real_token_reserves` are exhausted, not when a quo
 At migration:
 - the remaining token-account balance becomes the PumpSwap base reserve;
 - the real quote reserve, less the configured migration account-creation fee, becomes the pool quote reserve;
+- if a V3 completing buy includes a synthetic pool leg, its net quote input is added and its token output is removed before the pool is created;
+- pending protocol and creator fees remain separate and are not included in pool liquidity;
 - the initial LP shares are marked locked/burned according to `initial_lp_lock_fraction`;
 - the simulator records the price gap between the final curve price and the initial pool price.
 
