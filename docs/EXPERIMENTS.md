@@ -35,6 +35,11 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 15. **Creator-fee economics:** vary active Pump fee tier, beneficiary mode (creator / Holder Rewards / charity), independent eligible trade volume, multi-hop route and interface fee. Measure settled Creator Fee revenue, receivable aging, claim costs and fee-tier transitions. Exclude controlled-wallet turnover from external fee-revenue forecasts.
 16. **Optimal partial liquidation:** vary risk-adjusted continuation value (M_{hold}), Dev LP share, route fee split, reference-price uncertainty and impact cap. Compare the analytical marginal rule with a numerical state-transition optimizer on matched seeds. Report q_BE versus q_max, actual net owner quote recovery, NLV change, CVaR and post-sale depth.
 
+17. **Dev LP versus Treasury allocation:** compare no-LP, fixed LP share, fee-turnover/LVR screening, marginal LP allocation with zero volume elasticity, calibrated depth-to-genuine-volume elasticity, and joint Treasury reserve policies. Vary Dev/external LP share, active LP fee tier, volatility, turnover and capital reserve. Report LP claim NLV, Delta/Gamma, cash runway and tail loss.
+18. **Fee income attribution:** separate LP Fee retained in pool reserves from Creator Fee accrued/swept/claimed. Vary creator beneficiary mode, fee tier, fee claim delay and eligible external volume. Test that LP fees are not counted twice and that sweep events are not counted as new fee income.
+19. **LP fee/LVR threshold:** sweep daily volatility from 10% to 50%, LP Fee from 0.020% to 0.250%, and genuine daily turnover from 0.25x to 200x TVL. Compare the analytical one-eighth variance baseline with event-driven replay including jumps, latency and concentrated flow.
+20. **Depth elasticity:** estimate the causal response of genuine eligible volume to pool TVL using matched cohorts and held-out launches. Compare (epsilon_V=0) with calibrated elasticity; do not treat correlation between TVL and volume as causation.
+
 ## Stress scenarios
 
 Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve relationships when changing curve parameters; do not tune graduation by changing a quote threshold because Pump completion is based on real-token exhaustion:
@@ -46,6 +51,9 @@ Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve
 - large but legitimate treasury/vesting supply events when explicitly configured.
 
 ## Reporting rules
+
+- Report LP-versus-Treasury marginal allocation value, fee/LVR surplus, volume elasticity and Delta/Gamma exposure.
+- Report LP Fee accrual through reserve value separately from Creator Fee accrued, swept, claimed and distributed.
 
 - Use at least 100 seeds for exploratory distributions and 500+ for more stable tail estimates.
 - Report mean, median, p10, p90, and graduation rate.
