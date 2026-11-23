@@ -5,11 +5,11 @@ on:
     branches:
       - feat/agent-based-simulator
     paths:
-      - .github/workflows/launch-capital-sensitivity.yml
+      - .github/workflows/graduation-sensitivity.yml
   workflow_dispatch:
     inputs:
       runs_per_value:
-        description: Independent market paths per graduation threshold
+        description: Independent market paths per capital scale
         required: true
         default: "100"
         type: number
@@ -62,11 +62,11 @@ jobs:
 
           summary = json.loads(Path("results/launch-capital-sensitivity.json").read_text())
           scenarios = summary["scenarios"]
-          assert len(scenarios) == 6
+          assert len(scenarios) == 5
           assert all(0 <= item["graduation_rate"] <= 1 for item in scenarios)
           with Path("results/launch-capital-sensitivity.csv").open(newline="") as handle:
               rows = list(csv.DictReader(handle))
-          assert len(rows) == 6
+          assert len(rows) == 5
           for item in scenarios:
               print(
                   "capital_scale:", item["value"],
