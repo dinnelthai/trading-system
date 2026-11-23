@@ -790,12 +790,22 @@ class Market:
             config.curve_real_token_reserve,
             config.curve_fee_bps,
             migration_tokens,
+            creator_fee_bps=config.curve_creator_fee_bps,
+            buyback_fee_bps=config.curve_buyback_fee_bps,
+            total_supply=config.total_supply,
+            fee_tiers=config.curve_fee_tiers,
+            retain_fees=config.curve_retain_fees,
+            synthetic_migration=config.curve_synthetic_migration,
+            migration_fee_quote=config.pool_migration_fee_quote,
         )
         self.pool: Optional[ConstantProductPool] = None
         self.initial_lp_locked_shares = 0.0
         self.migration_price_before: Optional[float] = None
         self.migration_price_after: Optional[float] = None
         self.migration_price_gap_bps: Optional[float] = None
+        self.curve_terminal_price: Optional[float] = None
+        self.curve_quote_reserve_at_migration: Optional[float] = None
+        self.migration_fee_paid_quote = 0.0
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
         self.external_token_reserve = config.external_initial_token_reserve
@@ -806,42 +816,43 @@ class Market:
     def price(self) -> float:
         return self.curve.price if self.phase == Phase.CURVE else self.pool.price  # type: ignore[union-attr]
 
+    def depth_quote_for_side(self, side: str) -> float:
+        impact = self.config.curve_depth_impact_bps / 10_000.0
+        if self.phase == Phase.CURVE:
+            if side == "sell":
+                return self.curve.sell_depth_quote(impact)
+            return self.curve.buy_depth_quote(impact)
+        if self.pool is None:
+            return 0.0
+        if side == "sell":
+            return constant_product_sell_depth_quote(self.pool.quote_reserve, impact)
+        return constant_product_buy_depth_quote(self.pool.quote_reserve, impact)
+
     @property
     def depth_quote(self) -> float:
-        if self.phase == Phase.CURVE:
-            return max(0.1, self.curve.virtual_quote * 0.10)
-        return max(0.1, self.pool.quote_reserve * 0.10)  # type: ignore[union-attr]
+        return self.depth_quote_for_side("buy")
 
     def preview_buy(self, quote_in: float) -> float:
         if quote_in <= 0:
             return 0.0
         if self.phase == Phase.CURVE:
-            if self.curve.real_tokens <= EPS:
-                return 0.0
-            net = quote_in * (1.0 - self.curve.fee_rate)
-            k = self.curve.virtual_tokens * self.curve.virtual_quote
-            return min(self.curve.real_tokens, self.curve.virtual_tokens - k / (self.curve.virtual_quote + net))
+            return self.curve.preview_buy(quote_in, self.config.curve_synthetic_migration)
         pool = self.pool
         if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
             return 0.0
         net = quote_in * (1.0 - pool.fee_rate)
-        return pool.token_reserve * net / (pool.quote_reserve + net)
+        return constant_product_buy_token_out(pool.token_reserve, pool.quote_reserve, net)
 
     def buy(self, quote_in: float) -> Execution:
         if self.phase == Phase.CURVE:
-            return self.curve.buy(quote_in)
+            return self.curve.buy(quote_in, self.config.curve_synthetic_migration)
         return self.pool.buy(quote_in)  # type: ignore[union-attr]
 
     def preview_sell(self, token_in: float) -> float:
         if token_in <= 0:
             return 0.0
         if self.phase == Phase.CURVE:
-            if self.curve.real_quote <= EPS:
-                return 0.0
-            max_tokens = self.curve.real_quote * self.curve.virtual_tokens / max(self.curve.virtual_quote - self.curve.real_quote, EPS)
-            used = min(token_in, max_tokens)
-            gross = self.curve.virtual_quote * used / max(self.curve.virtual_tokens + used, EPS)
-            return gross * (1.0 - self.curve.fee_rate)
+            return self.curve.preview_sell(token_in)
         pool = self.pool
         if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
             return 0.0
@@ -854,26 +865,42 @@ class Market:
         return self.pool.sell(token_in)  # type: ignore[union-attr]
 
     def maybe_migrate(self, timestamp: float) -> bool:
-        # Pump completion is driven by exhausting the real curve token inventory,
-        # not by crossing a quote-reserve threshold. The remaining token-account
-        # balance is the migration base reserve; real quote reserves fund the pool.
-        if self.phase != Phase.CURVE or self.curve.real_tokens > EPS:
+        # The curve is complete only after its real token inventory is exhausted.
+        # A V3 synthetic buy may already have consumed part of the pool-to-be.
+        if self.phase != Phase.CURVE or not self.curve.complete or self.curve.real_tokens > EPS:
             return False
         pool_tokens = self.curve.token_account_balance
-        pool_quote = self.curve.real_quote - self.config.pool_migration_fee_quote
+        curve_quote = self.curve.real_quote
+        pool_quote = curve_quote - self.config.pool_migration_fee_quote + self.curve.post_complete_quote_in
         if pool_tokens <= EPS or pool_quote <= EPS:
             return False
-        self.migration_price_before = self.curve.price
+
+        self.curve_terminal_price = self.curve.price
+        self.curve_quote_reserve_at_migration = curve_quote
+        self.migration_fee_paid_quote = self.config.pool_migration_fee_quote
+        if self.curve.post_complete_base_out > EPS:
+            # Compare migration with the synthetic pool state after the completing buy.
+            self.migration_price_before = pool_quote / pool_tokens
+        else:
+            # Legacy/curve-only completion: compare the pool opening price to terminal curve price.
+            self.migration_price_before = self.curve_terminal_price
+
         self.pool = ConstantProductPool(
             pool_tokens,
             pool_quote,
             self.config.pool_fee_bps,
             self.config.pool_lp_fee_share,
         )
+        # Reserves move to PumpSwap; pending protocol/creator fees remain on the curve
+        # and are not part of LP liquidity.
         self.curve.token_account_balance = 0.0
+        self.curve.real_quote = 0.0
+        self.curve.migrated = True
         self.initial_lp_locked_shares = self.pool.total_lp_shares * self.config.initial_lp_lock_fraction
         self.migration_price_after = self.pool.price
-        self.migration_price_gap_bps = (self.migration_price_after / max(self.migration_price_before, EPS) - 1.0) * 10_000.0
+        self.migration_price_gap_bps = (
+            self.migration_price_after / max(self.migration_price_before, EPS) - 1.0
+        ) * 10_000.0
         self.phase = Phase.POOL
         self.graduated_at = timestamp
         return True
