@@ -37,7 +37,8 @@ def pool_depth_by_price_impact(
     protocol_fraction = 1.0 - lp_fee_share
     buy_reserve_factor = 1.0 - fee_rate * protocol_fraction
     buy_swap_factor = 1.0 - fee_rate
-    sell_reserve_factor = fee_rate * protocol_fraction
+    # On sells, the LP share is retained in reserves; protocol fees leave.
+    sell_reserve_factor = fee_rate * lp_fee_share
     result: Dict[str, Dict[str, float]] = {}
 
     if token_reserve <= 0 or quote_reserve <= 0:
