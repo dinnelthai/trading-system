@@ -28,7 +28,7 @@ class SimConfig:
     total_supply: float = 1_000_000_000.0
     dev_allocation: float = 200_000_000.0
     dev_locked_fraction: float = 0.75
-    other_locked_supply: float = 300_000_000.0
+    other_locked_supply: float = 200_000_000.0
     curve_real_token_reserve: float = 500_000_000.0
     curve_virtual_token_reserve: float = 1_000_000_000.0
     curve_virtual_quote_reserve: float = 100.0
