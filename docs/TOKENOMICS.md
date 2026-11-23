@@ -197,7 +197,7 @@ Also report:
 
 This avoids the prior denominator error: a holder HHI must be normalized by the holdings included in that HHI. Dividing wallet-only balances by total circulating supply understates concentration whenever curve, pool, or locked inventory is excluded from the numerator.
 
-Wallet clustering must use verified or confidence-scored evidence. A shared funder or common exchange source alone is not proof that two wallets have the same beneficial owner.
+Wallet clustering must use verified or confidence-scored evidence. A shared funder or common exchange source alone is not proof that two wallets have the same beneficial owner. A transfer between wallets attributed to the same beneficial owner changes wallet location only: it does not reduce beneficial ownership, count as external distribution, reset cost basis or realize sale proceeds. See [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md).
 
 ## 8. Allocation decision model
 
