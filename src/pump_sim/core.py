@@ -1035,7 +1035,7 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
     for key in ("final_price", "price_return", "max_drawdown", "trades", "true_volume_quote",
                 "fees_quote", "lp_fees_quote", "estimated_mev_risk_cost_quote",
                 "dev_float_share", "top_holder_share", "observed_to_true_volume_ratio",
-                "candle_close_mae_bps", "token_supply_accounting_error"):
+                "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error"):
         xs = values(key)
         metrics[key] = {
             "mean": statistics_mean(xs),
