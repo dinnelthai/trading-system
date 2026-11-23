@@ -47,6 +47,16 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 
 25. **External LP supply response:** vary (chi=dE/dK_D) across crowd-in, fixed-supply and crowd-out scenarios. Compare Dev's marginal fee capture, total pool depth, route share, external LP concentration and minimum-depth violations. Do not treat an increase in Dev fee share caused by other LPs withdrawing as a market-quality gain.
 
+26. **Two-sided depth and inventory:** compare buy/sell depth at 1%, 5% and 10% impact; vary directional order flow and reference basis. Report depth balance, asymmetry, beneficial-owner Token exposure and continuous minimum-depth breaches.
+27. **Independent price discovery:** construct a robust reference from multiple executable venues; vary stale sources, venue concentration, fees and finite depth. Measure signed/p95 basis, no-arbitrage band violations and convergence after independent reference changes.
+28. **Resilience:** replay observed and stochastic exogenous shocks. Measure basis recovery, buy-depth recovery and sell-depth recovery separately; include censored non-recovery and sustained-window requirements. Do not require reversion to the pre-shock price.
+29. **Adverse selection and markout:** compute trade-side signed reference markout at multiple horizons. Compare LP-retained fees, adverse markout, LVR baseline and realized LP NLV without double-counting IL/LVR.
+30. **Execution fairness:** match orders by side, quote size, pool state, fee tier, congestion, priority fee and quote freshness. Compare residual p50/p95, success rates and latency across cohorts.
+31. **Market integrity:** test unique event identity, reorg/finality handling, duplicate suppression, true OHLCV reconciliation, LP-event exclusion and conservative beneficial-owner attribution. Verify unknown volume is not silently labeled independent.
+32. **Lifecycle state machine:** test every state transition, hysteresis, persistence window, PAUSE/RECOVERY behavior and protocol-migration reconciliation.
+33. **MQS hard-gate behavior:** verify that a failed integrity, data, depth or risk gate cannot be compensated by a high score in another dimension. Confirm raw volume, low volatility and candle smoothness do not increase the score directly.
+34. **Participant heterogeneity:** vary correlated information shocks, heavy-tailed order sizes, finite inventory, route sensitivity, external LP response and beneficial-owner clusters. Report distributions and false-positive rates for anomaly flags.
+
 ## Stress scenarios
 
 Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve relationships when changing curve parameters; do not tune graduation by changing a quote threshold because Pump completion is based on real-token exhaustion:
@@ -62,6 +72,7 @@ Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve
 - Report LP-versus-Treasury marginal allocation value, fee/LVR surplus, volume elasticity and Delta/Gamma exposure.
 - Report LP Fee accrual through reserve value separately from Creator Fee accrued, swept, claimed and distributed.
 - Report intent, route selection, submission, settlement and failure separately; include route share and fill elasticity by participant class and flow type.
+- Report the complete R08–R19 market-quality vector, hard-gate status, confidence and missing-data flags; do not report only one MQS scalar.
 
 - Use at least 100 seeds for exploratory distributions and 500+ for more stable tail estimates.
 - Report mean, median, p10, p90, and graduation rate.
