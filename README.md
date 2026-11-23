@@ -86,6 +86,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 - [Dev Treasury & Exit Intelligence — optimal stopping, route-aware exit and beneficial-owner accounting](docs/DEV_TREASURY_EXIT.md)
 - [Dev LP vs Treasury — dynamic capital allocation, LP Fee/LVR and Creator Fee separation](docs/DEV_LP_TREASURY_ALLOCATION.md)
 - [Pool Depth Elasticity — genuine volume, route choice and causal experiment design](docs/DEPTH_ELASTICITY.md)
+- [R08–R19 Market Quality Metrics, Risk, Lifecycle and Validation](docs/MARKET_QUALITY_METRICS.md)
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)
