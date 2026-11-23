@@ -7,3 +7,9 @@ build/
 dist/
 *.egg-info/
 results/
+
+# Large per-token chain archives are kept outside Git.
+data/samples/*/raw_transactions.jsonl
+data/samples/*/block_manifest.jsonl
+data/samples/*/*.signatures.jsonl
+data/samples/*/mint_probe.json
