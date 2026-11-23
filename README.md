@@ -59,16 +59,23 @@ Any SimConfig field can be supplied in the JSON config. The Python API exposes S
 
 ## Default scenario is synthetic
 
-The baseline uses a 1B supply with:
-- Dev allocation: 20% of total supply; 75% of that allocation is locked.
-- Other locked supply: 20%.
-- Bonding-curve real token inventory: 50%.
-- External reference-venue token inventory: 10%.
+The current default config uses a standard Pump-style reserve snapshot:
+- Total supply: 1B tokens.
+- Dev pre-minted genesis allocation: 0%.
+- Other locked supply: 0%.
+- Bonding-curve real token inventory: 793.1M.
+- Derived migration inventory: 206.9M.
+- External reference-venue token inventory: 0%.
+- Virtual curve reserves: 1.073B tokens and 30 SOL.
+- Initial migration LP shares: 100% marked locked.
 
-Curve reserves, fees, graduation threshold, external venue depth, agent counts, and all behavioral parameters are illustrative defaults. They are **not** claims about current Pump.fun or PumpSwap protocol constants. Replace them with dated, verified on-chain parameters and calibrated participant distributions before interpreting outputs empirically.
+These values are model inputs inherited from the project specification, not a guarantee that every deployment version or launch uses identical parameters. A nonzero Dev genesis allocation is a custom supply layout and changes the residual migration inventory unless other reserve buckets are changed. A Dev curve purchase must be modeled as an executed curve trade, not as a free genesis allocation.
+
+Curve reserves, fees, external venue depth, agent counts, and behavioral parameters remain illustrative until replaced with dated, verified on-chain parameters and calibrated participant distributions.
 
 ## Research docs
 
+- [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Model specification](docs/MODEL.md)
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
