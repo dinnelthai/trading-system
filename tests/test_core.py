@@ -99,6 +99,32 @@ def test_token_supply_is_conserved_across_curve_pool_and_external_venue():
     assert math.isclose(total, config.total_supply, rel_tol=1e-9, abs_tol=1e-3)
 
 
+def test_post_migration_pool_runs_agents_and_preserves_supply():
+    config = SimConfig(
+        seed=77,
+        duration_s=180,
+        graduation_quote_reserve=1.0,
+        n_snipers=4,
+        n_kols=1,
+        n_arbitrageurs=2,
+        n_retail=15,
+        n_whales=1,
+        n_lp_providers=3,
+        n_mev_risk_agents=1,
+    )
+    engine = SimulationEngine(config)
+    engine.market.buy(2.0)
+    assert engine.market.maybe_migrate(0.0)
+    engine._handle_migration()
+    assert engine.dev.account.lp_shares > 0
+
+    result = engine.run()
+    assert result["phase"] == "pump_swap_pool"
+    assert result["trades"] > 0
+    assert abs(result["token_supply_accounting_error"]) < 1e-3
+    assert result["pool_quote_reserve"] > 0
+
+
 def test_dev_vesting_releases_locked_supply_on_public_schedule():
     config = SimConfig(
         seed=31,
