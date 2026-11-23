@@ -75,6 +75,8 @@ where:
 
 - \(R_t\): protocol reserves and pool state.
 - \(I_t\): free Token and quote inventory by owner and location.
+- \(I_t^{owner}\): wallet-clustered beneficial ownership and controlled-account attribution with confidence.
+- \(T_t\): treasury cost basis, locked/unlocked inventory, vesting, realized proceeds, reserve mandate and exit-policy state.
 - \(L_t\): LP positions, withdrawable claims and ownership.
 - \(F_t\): observed and estimated participant flow.
 - \(V_t\): volatility and regime estimates.
@@ -216,11 +218,9 @@ The target depth is a service objective, not a reason to exceed authorized capit
 
 ### 6.5 Stage 4 — Risk-adjusted economics
 
-For market-making actions, among bundles with the same best feasible quality-service result, maximize:
+For market-making actions, among bundles with the same best feasible quality-service result, maximize the following market-making economic objective:
 
-For treasury exits, apply the separate Dev Treasury & Exit mandate: maximize expected net realizable proceeds plus the risk-adjusted continuation value of remaining inventory, subject to the same hard integrity, ownership, vesting, capital, execution and market-quality constraints. Do not count LP principal as profit or use a weighted score to buy permission to breach a hard gate.
-
-The market-making economic objective is:
+For treasury exits, use the separate Dev Treasury & Exit mandate: maximize expected net realizable proceeds plus the risk-adjusted continuation value of remaining inventory, subject to the same hard integrity, ownership, vesting, capital, execution and market-quality constraints. Do not count LP principal as profit or use a weighted score to buy permission to breach a hard gate.
 
 \[
 J_E(b)=
