@@ -3,12 +3,29 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
+import copy
 import heapq
 import math
 import random
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 
 from .tokenomics import derive_initial_supply_allocation, dev_exposure_metrics, holder_concentration_metrics
+from .curve_math import (
+    constant_product_buy_depth_quote,
+    constant_product_buy_net_quote,
+    constant_product_buy_token_out,
+    constant_product_sell_depth_quote,
+    curve_buy_depth_quote,
+    curve_buy_net_quote,
+    curve_buy_token_out,
+    curve_market_cap_quote,
+    curve_sell_depth_quote,
+    curve_sell_gross_quote,
+    fees_on_net_quote,
+    gross_quote_for_net,
+    net_quote_from_spendable,
+    select_curve_fee_rates,
+)
 
 
 EPS = 1e-12
@@ -38,6 +55,13 @@ class SimConfig:
     graduation_quote_reserve: float = 85.0
     pool_migration_fee_quote: float = 0.015000001
     curve_fee_bps: float = 100.0
+    curve_creator_fee_bps: float = 0.0
+    curve_buyback_fee_bps: float = 0.0
+    curve_retain_fees: bool = True
+    curve_synthetic_migration: bool = True
+    curve_fee_tiers: List[Dict[str, float]] = field(default_factory=list)
+    curve_depth_impact_bps: float = 500.0
+    default_slippage_tolerance_bps: float = 500.0
     pool_fee_bps: float = 30.0
     pool_lp_fee_share: float = 0.70
     initial_lp_lock_fraction: float = 1.0
@@ -92,6 +116,25 @@ class SimConfig:
             raise ValueError("agent population counts must be nonnegative")
         if not 0 <= self.external_fee_bps < 10_000:
             raise ValueError("external_fee_bps must be in [0, 10000)")
+        if not 0 <= self.curve_fee_bps < 10_000 or not 0 <= self.curve_creator_fee_bps < 10_000:
+            raise ValueError("curve protocol and creator fees must be in [0, 10000)")
+        if not 0 <= self.curve_buyback_fee_bps <= self.curve_fee_bps:
+            raise ValueError("curve buyback fee must be a component of protocol fee")
+        if self.curve_fee_bps + self.curve_creator_fee_bps >= 10_000:
+            raise ValueError("combined curve fees must be below 10000 bps")
+        if not 0 < self.curve_depth_impact_bps <= 5_000:
+            raise ValueError("curve_depth_impact_bps must be in (0, 5000]")
+        if not 0 <= self.default_slippage_tolerance_bps < 10_000:
+            raise ValueError("default_slippage_tolerance_bps must be in [0, 10000)")
+        for tier in self.curve_fee_tiers:
+            threshold = float(tier["market_cap_quote_threshold"])
+            protocol_bps = float(tier["protocol_fee_bps"])
+            creator_bps = float(tier.get("creator_fee_bps", 0.0))
+            buyback_bps = float(tier.get("buyback_fee_bps", 0.0))
+            if threshold < 0 or protocol_bps < 0 or creator_bps < 0 or buyback_bps < 0:
+                raise ValueError("curve fee tier values must be nonnegative")
+            if protocol_bps + creator_bps >= 10_000 or buyback_bps > protocol_bps:
+                raise ValueError("invalid curve fee tier rates")
         if not 0 <= self.mev_base_probability <= 1:
             raise ValueError("mev_base_probability must be in [0, 1]")
         if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.external_initial_token_reserve > self.total_supply:
@@ -184,6 +227,9 @@ class Action:
     amount: float = 0.0
     sentiment_delta: float = 0.0
     attention_delta: float = 0.0
+    quoted_amount_out: Optional[float] = None
+    min_amount_out: Optional[float] = None
+    arrival_time: Optional[float] = None
 
 
 @dataclass
@@ -191,6 +237,14 @@ class Execution:
     amount_in: float
     amount_out: float
     fee: float
+    protocol_fee: float = 0.0
+    creator_fee: float = 0.0
+    buyback_fee: float = 0.0
+    curve_quote_reserve_in: float = 0.0
+    curve_gross_quote_in: float = 0.0
+    synthetic_pool_quote_reserve_in: float = 0.0
+    synthetic_pool_gross_quote_in: float = 0.0
+    synthetic_pool_token_out: float = 0.0
 
 
 @dataclass
@@ -205,6 +259,12 @@ class Trade:
     price: float
     fee_quote: float
     mev_risk_cost_quote: float
+    curve_quote_amount: float = 0.0
+    synthetic_pool_quote_amount: float = 0.0
+    synthetic_pool_token_amount: float = 0.0
+    spot_price_before: float = 0.0
+    spot_price_after: float = 0.0
+    price_impact_bps: float = 0.0
 
 
 @dataclass
@@ -639,6 +699,13 @@ class SimulationEngine:
         self.peak_price = self.market.price
         self.max_drawdown = 0.0
         self._migration_handled = False
+        self.orders_submitted = 0
+        self.orders_executed = 0
+        self.orders_failed = 0
+        self.slippage_reverts = 0
+        self.order_latency_sum_s = 0.0
+        self.order_latency_max_s = 0.0
+        self.order_latency_count = 0
 
     def _new_agent(self, kind: str, index: int, quote: float, tokens: float = 0.0) -> Agent:
         agent_rng = random.Random(self.seed_rng.getrandbits(64))
