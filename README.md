@@ -82,6 +82,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 - [Experiment plan](docs/EXPERIMENTS.md)
 - [Empirical calibration data contract](docs/CALIBRATION.md)
 - [R04 deterministic on-chain event replay](docs/R04_REPLAY.md)
+- [Solana raw archive export and decoder gate](docs/SOLANA_ARCHIVE.md)
 
 The simulator reports distributions, participant-level outcomes, token and LP concentration, fee-aware pool depth, liquidity add/remove events, fees, drawdown, graduation, execution slippage, and true-versus-observed candle differences. Set `record_pool_event_trace=true` to include the detailed pool-state event trace in a run summary. Use `--csv-out results/runs.csv --summary-only` to export compact Monte Carlo results. A seed is reproducible, not predictive; use many seeds and report uncertainty.
 
@@ -91,6 +92,12 @@ The simulator reports distributions, participant-level outcomes, token and LP co
 For descriptive swap-only statistics, normalize trades to the schema in `docs/CALIBRATION.md` and run:
 
     pump-calibrate --input data/swaps.csv --out results/calibration.json
+
+To export raw finalized Solana blocks while preserving transaction order, set `SOLANA_RPC_URL` and run:
+
+    solana-block-export --start-slot START_SLOT --end-slot END_SLOT --out data/raw_transactions.jsonl
+
+See `docs/SOLANA_ARCHIVE.md` for archive requirements and the decoder gate.
 
 For deterministic event replay, normalize swaps, liquidity changes, migration, and state snapshots to the v1.0 JSONL contract in `docs/R04_REPLAY.md`, then run:
 
