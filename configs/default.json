@@ -46,5 +46,6 @@
   "curve_synthetic_migration": true,
   "curve_fee_tiers": [],
   "curve_depth_impact_bps": 500,
-  "default_slippage_tolerance_bps": 500
+  "default_slippage_tolerance_bps": 500,
+  "record_pool_event_trace": false
 }
