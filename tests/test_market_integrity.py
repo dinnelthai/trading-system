@@ -90,7 +90,7 @@ def config(**overrides):
         "min_cluster_volume_quote": 100,
         "concentration_review_share": 0.75,
         "hhi_review_threshold": 0.60,
-        "sell_pressure_depth_multiple": 2,
+        "flow_depth_multiple": 2,
         "max_abs_basis_bps": 500,
         "max_depth_observation_age_s": 15,
     }
