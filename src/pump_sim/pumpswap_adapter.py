@@ -83,10 +83,16 @@ class PumpSwapPoolState:
             "base_vault_amount", "quote_vault_amount", "lp_supply",
             "protocol_fees_unclaimed", "creator_fees_unclaimed", "creator_fee_bps",
         ):
-            _integer(name, getattr(self, name), 0, U64_MAX)
-        _integer("virtual_quote_reserves", self.virtual_quote_reserves, I128_MIN, I128_MAX)
-        _integer("base_decimals", self.base_decimals, 0, 255)
-        _integer("quote_decimals", self.quote_decimals, 0, 255)
+            object.__setattr__(
+                self, name, _integer(name, getattr(self, name), 0, U64_MAX)
+            )
+        object.__setattr__(
+            self,
+            "virtual_quote_reserves",
+            _integer("virtual_quote_reserves", self.virtual_quote_reserves, I128_MIN, I128_MAX),
+        )
+        object.__setattr__(self, "base_decimals", _integer("base_decimals", self.base_decimals, 0, 255))
+        object.__setattr__(self, "quote_decimals", _integer("quote_decimals", self.quote_decimals, 0, 255))
         for name in ("is_mayhem_mode", "is_cashback_coin", "is_holder_reward", "can_edit_creator_fee"):
             _boolean(name, getattr(self, name))
         for name in (
