@@ -67,8 +67,23 @@ class SimConfig:
             raise ValueError("total_supply must be positive")
         if self.block_interval_s <= 0 or self.candle_interval_s <= 0:
             raise ValueError("block_interval_s and candle_interval_s must be positive")
-        if not 0 <= self.curve_fee_bps < 10_000 or not 0 <= self.pool_fee_bps < 10_000:
-            raise ValueError("AMM fee bps must be in [0, 10000)")
+        if self.curve_virtual_token_reserve <= 0 or self.curve_virtual_quote_reserve <= 0:
+            raise ValueError("curve virtual reserves must be positive")
+        if self.graduation_quote_reserve <= 0 or self.external_depth_quote <= 0:
+            raise ValueError("graduation threshold and external depth must be positive")
+        nonnegative = (self.dev_allocation, self.other_locked_supply, self.curve_real_token_reserve,
+                       self.external_initial_token_reserve, self.dev_lp_quote_budget, self.feed_mean_latency_s,
+                       self.mev_max_risk_bps)
+        if any(value < 0 for value in nonnegative):
+            raise ValueError("supply, budget, latency, and risk parameters must be nonnegative")
+        counts = (self.n_snipers, self.n_kols, self.n_arbitrageurs, self.n_retail, self.n_whales,
+                  self.n_lp_providers, self.n_mev_risk_agents)
+        if any(value < 0 for value in counts):
+            raise ValueError("agent population counts must be nonnegative")
+        if not 0 <= self.external_fee_bps < 10_000:
+            raise ValueError("external_fee_bps must be in [0, 10000)")
+        if not 0 <= self.mev_base_probability <= 1:
+            raise ValueError("mev_base_probability must be in [0, 1]")
         if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve + self.external_initial_token_reserve > self.total_supply:
             raise ValueError("initial token allocations exceed total_supply")
         if not 0 <= self.dev_locked_fraction <= 1:
@@ -499,6 +514,8 @@ class Market:
 
     def maybe_migrate(self, timestamp: float) -> bool:
         if self.phase != Phase.CURVE or self.curve.real_quote < self.config.graduation_quote_reserve:
+            return False
+        if self.curve.real_tokens <= EPS or self.curve.real_quote <= EPS:
             return False
         self.pool = ConstantProductPool(
             self.curve.real_tokens,
