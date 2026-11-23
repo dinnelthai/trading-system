@@ -29,8 +29,6 @@ EXTENSION_NAMES = {
     13: "NonTransferableAccount",
     14: "TransferHook",
     15: "TransferHookAccount",
-    16: "ConfidentialTransferFeeConfig",
-    17: "ConfidentialTransferFeeAmount",
     18: "MetadataPointer",
     19: "TokenMetadata",
     20: "GroupPointer",
@@ -91,7 +89,7 @@ def parse_mint_account_data(encoded: str, owner_program: str) -> Dict[str, Any]:
             if any(raw[offset:]):
                 result["extension_parse_status"] = "nonzero_bytes_after_tlv_padding"
             else:
-                result["extension_parse_status"] = "parsed"
+                result["extension_parse_status"] = "parsed" if extensions else "no_extension_tlv"
             break
         end = offset + length
         if end > len(raw):
