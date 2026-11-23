@@ -12,6 +12,8 @@ This is a target-system specification, not a claim that all engines are implemen
 
 The version-aware PumpSwap decoded-state normalization is documented in [PumpSwap State Adapter](docs/PUMPSWAP_ADAPTER.md). It preserves signed `virtual_quote_reserves`, excludes unclaimed v2 protocol/creator fees from effective pricing reserves, and models fee sweeps as reserve-neutral. This adapter is intentionally not a raw Borsh decoder or live transaction client.
 
+The [Canonical Market Event Ledger](docs/MARKET_EVENT_LEDGER.md) adds idempotent event identity, finality-aware deduplication, true-swap volume attribution and execution-derived candles. It consumes normalized decoded events; raw Solana decoding and ingestion are still separate work.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, configurable fixed-fraction vesting sales, and risk-based withdrawal of its own LP position. Adaptive optimal-stopping exit is specified in the research docs but is not implemented.
