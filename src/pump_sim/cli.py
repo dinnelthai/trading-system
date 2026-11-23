@@ -1,10 +1,46 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
+from typing import Dict, List
 
 from .core import SimConfig, SimulationEngine, run_monte_carlo, run_parameter_sweep
+
+
+def _flatten_run(row: Dict[str, object]) -> Dict[str, object]:
+    flat = {
+        key: value
+        for key, value in row.items()
+        if not isinstance(value, (dict, list, tuple))
+    }
+    participants = row.get("participants", {})
+    if isinstance(participants, dict):
+        for role, metrics in participants.items():
+            if isinstance(metrics, dict):
+                for metric, value in metrics.items():
+                    if not isinstance(value, (dict, list, tuple)):
+                        flat[f"{role}_{metric}"] = value
+    return flat
+
+
+def _write_run_csv(path: Path, result: Dict[str, object]) -> None:
+    if isinstance(result.get("run_results"), list):
+        records = result["run_results"]
+    elif isinstance(result.get("scenarios"), list):
+        records = result["scenarios"]
+    else:
+        records = [result]
+    flattened = [_flatten_run(row) for row in records if isinstance(row, dict)]
+    if not flattened:
+        raise ValueError("No run-level records available for CSV export")
+    fieldnames = sorted({key for row in flattened for key in row})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(flattened)
 
 
 def main() -> None:
@@ -16,6 +52,8 @@ def main() -> None:
     parser.add_argument("--sweep-field", type=str, default=None, help="SimConfig field to vary")
     parser.add_argument("--sweep-values", type=str, default=None, help="comma-separated JSON scalar values")
     parser.add_argument("--out", type=Path, default=None, help="optional JSON output path")
+    parser.add_argument("--csv-out", type=Path, default=None, help="optional run-level CSV output path")
+    parser.add_argument("--summary-only", action="store_true", help="omit individual run payloads from JSON after CSV export")
     args = parser.parse_args()
 
     values = {}
@@ -36,6 +74,12 @@ def main() -> None:
         result = SimulationEngine(config).run()
     else:
         result = run_monte_carlo(config, args.runs)
+
+    if args.csv_out:
+        _write_run_csv(args.csv_out, result)
+        print(f"Wrote {args.csv_out}")
+    if args.summary_only and isinstance(result, dict):
+        result.pop("run_results", None)
 
     rendered = json.dumps(result, indent=2, sort_keys=True)
     if args.out:
