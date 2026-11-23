@@ -104,10 +104,13 @@ One JSON object per line. Raw token and quote quantities are integer atoms; neve
 - quote_amount_raw: gross quote notional before venue fees, in quote atoms. For a buy this is the gross swap input; for a sell it is the gross quote output before fees.
 - fee_quote_raw: total unique quote-denominated fee for the event. Do not add it into quote_amount_raw a second time.
 - Fee components may be supplied separately as lp_fee_quote_raw, protocol_fee_quote_raw, creator_fee_quote_raw, buyback_fee_quote_raw, cashback_quote_raw, and holder_rewards_quote_raw. Some components can be subcomponents of another fee (for example, buyback can be part of protocol fee); never sum overlapping fields to derive total fees.
+- The decoder must preserve instruction-level fee values and the slot-specific fee configuration. Pump's global fee schedule and per-coin flags can change over time; the latest config is not a historical substitute.
 - base_reserve_before_raw, quote_reserve_before_raw, base_reserve_after_raw, quote_reserve_after_raw: exact pricing reserves for the event's reserve_domain.
 - For curve_swap, base/quote reserve fields represent virtual curve reserves. Optional real_token_reserve_* and real_quote_reserve_* fields carry actual curve inventory and quote account balance.
 - For PumpSwap, quote_reserve_* always means **effective quote reserves**, not the raw quote vault balance. Preserve pool_quote_vault_before_raw / pool_quote_vault_after_raw and signed pool_virtual_quote_reserve_before_raw / pool_virtual_quote_reserve_after_raw separately. Validate effective quote = quote vault + signed virtual quote reserve at each supplied state.
+- The replay checks continuity of both raw quote-vault balance and signed virtual quote reserve independently, even when their sum (effective quote reserve) is unchanged.
 - PumpSwap virtual_quote_reserves is a signed i128 and may be negative. Effective quote reserves are guaranteed nonnegative by the program. Do not parse the virtual field as u64 or silently clamp it.
+- A state_snapshot may provide only the after quote-vault / virtual-reserve pair; a transition event may provide before and after pairs.
 - lp_shares_before_raw and lp_shares_after_raw are the position's exact LP token balance, not total pool supply.
 - source_base_reserve_raw and source_quote_reserve_raw on migration represent source real curve reserves, not virtual reserves.
 - participant_type is optional and should only be populated from independently verified labels.
@@ -198,6 +201,7 @@ A trades-only export is sufficient for descriptive swap statistics, but not for 
 - [x] Execution price / spot / marginal impact separation.
 - [x] Pump V3 completion marker and synthetic pool-leg ordering.
 - [x] Signed PumpSwap virtual quote reserve / effective quote reserve validation.
+- [x] Separate continuity checks for quote-vault and virtual-reserve components.
 - [ ] Real archive sample and decoder completeness proof.
 
 ### R04.2 — Holder ledger and participant attribution
