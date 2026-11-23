@@ -400,6 +400,8 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
     swap_rows = []
     liquidity_added = {"token": 0.0, "quote": 0.0}
     liquidity_removed = {"token": 0.0, "quote": 0.0}
+    liquidity_price_changes = {"add": [], "remove": []}
+    real_curve_states: Dict[str, Tuple[int, int]] = {}
     migration_count = 0
     fee_quote_total = 0.0
     volume_quote = 0.0
@@ -416,6 +418,17 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
 
         if event.event_type == "migration":
             migration_count += 1
+            if event.source_base_reserve_raw is not None:
+                curve_source = real_curve_states.get("curve_virtual")
+                expected_source = (int(event.source_base_reserve_raw), int(event.source_quote_reserve_raw))
+                if curve_source is not None and curve_source != expected_source:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": "curve_virtual",
+                        "kind": "migration_source_reserve_mismatch",
+                        "expected_source_raw": list(curve_source),
+                        "migration_source_raw": list(expected_source),
+                    })
             after = (int(event.base_reserve_after_raw), int(event.quote_reserve_after_raw))
             if event.reserve_domain in states:
                 continuity_mismatches.append({
@@ -442,15 +455,27 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
                     "quote_reserve_error_bps": 0.0,
                 })
             else:
+                base_error_bps = _relative_error_bps(current[0], observed[0])
+                quote_error_bps = _relative_error_bps(current[1], observed[1])
                 snapshot_comparisons.append({
                     "event_id": event.event_id,
                     "domain": event.reserve_domain,
                     "status": "compared",
-                    "base_reserve_error_bps": _relative_error_bps(current[0], observed[0]),
-                    "quote_reserve_error_bps": _relative_error_bps(current[1], observed[1]),
+                    "base_reserve_error_bps": base_error_bps,
+                    "quote_reserve_error_bps": quote_error_bps,
                     "base_reserve_delta_raw": observed[0] - current[0],
                     "quote_reserve_delta_raw": observed[1] - current[1],
                 })
+                if current != observed:
+                    continuity_mismatches.append({
+                        "event_id": event.event_id,
+                        "domain": event.reserve_domain,
+                        "kind": "snapshot_drift",
+                        "expected_reserves_raw": list(current),
+                        "snapshot_reserves_raw": list(observed),
+                        "base_reserve_error_bps": base_error_bps,
+                        "quote_reserve_error_bps": quote_error_bps,
+                    })
             continue
 
         if event.event_type not in STATE_TRANSITION_TYPES:
@@ -477,6 +502,26 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
         price_before = _human_price(before[1], before[0], event.token_decimals, event.quote_decimals)
         price_after = _human_price(after[1], after[0], event.token_decimals, event.quote_decimals)
         states[event.reserve_domain] = after
+
+        if event.event_type == "curve_swap" and event.real_token_reserve_before_raw is not None:
+            real_before = (
+                int(event.real_token_reserve_before_raw),
+                int(event.real_quote_reserve_before_raw),
+            )
+            real_after = (
+                int(event.real_token_reserve_after_raw),
+                int(event.real_quote_reserve_after_raw),
+            )
+            real_current = real_curve_states.get(event.reserve_domain)
+            if real_current is not None and real_current != real_before:
+                continuity_mismatches.append({
+                    "event_id": event.event_id,
+                    "domain": event.reserve_domain,
+                    "kind": "curve_real_reserve_continuity",
+                    "expected_before_raw": list(real_current),
+                    "event_before_raw": list(real_before),
+                })
+            real_curve_states[event.reserve_domain] = real_after
 
         if event.event_type in SWAP_EVENT_TYPES:
             execution_price = event.quote_amount / event.token_amount
@@ -521,6 +566,11 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             bucket = liquidity_added if event.event_type == "liquidity_add" else liquidity_removed
             bucket["token"] += abs(token_delta)
             bucket["quote"] += abs(quote_delta)
+            before_price = _human_price(before[1], before[0], event.token_decimals, event.quote_decimals)
+            after_price = _human_price(after[1], after[0], event.token_decimals, event.quote_decimals)
+            if before_price is not None and after_price is not None and before_price > 0:
+                key = "add" if event.event_type == "liquidity_add" else "remove"
+                liquidity_price_changes[key].append((after_price / before_price - 1.0) * 10_000.0)
 
     calibration = calibrate_swap_rows(swap_rows) if swap_rows else None
     final_states = {}
@@ -570,6 +620,8 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             "removed_quote": liquidity_removed["quote"],
             "positions_seen": len(lp_states),
             "position_lp_shares_raw": dict(lp_states),
+            "add_spot_price_change_bps": _distribution(liquidity_price_changes["add"]),
+            "remove_spot_price_change_bps": _distribution(liquidity_price_changes["remove"]),
         },
         "migration_count": migration_count,
         "final_reserves": final_states,
