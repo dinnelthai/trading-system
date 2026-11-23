@@ -1,4 +1,6 @@
-# R04 — Deterministic On-Chain Event Replay
+# Technical R04 — Deterministic On-Chain Event Replay
+
+**Roadmap mapping:** This is the simulator's technical replay/calibration workstream. It is not the broader Pump.fun product-roadmap R04, the user-facing 操盘工作台. Historical replay is shared data infrastructure: it supports the later 发行案例复盘 workstream and supplies validated market/risk metrics to the 操盘工作台.
 
 **Implementation status:** normalized event schema v1.0, slot/transaction/instruction ordering, reserve-state replay, LP position continuity, snapshot reconciliation, and replay CLI are implemented. A protocol-specific raw Solana decoder and complete archive-ingestion adapter are not yet implemented.
 
