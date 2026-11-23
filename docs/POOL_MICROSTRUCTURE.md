@@ -70,7 +70,8 @@ Let:
 
 - (f): total pool fee rate;
 - (l): share of the fee retained by LPs;
-- (c=f(1-l)): protocol fee fraction removed from reserves;
+- (c=f(1-l)): protocol fee fraction removed from reserves on buys;
+- (c_sell=f l): LP fee fraction retained in reserves on sells;
 - (x,y): pre-swap token and quote reserves.
 
 ### 3.1 Buy depth
@@ -125,18 +126,18 @@ The user receives:
 q_{user}=q_g(1-f)
 ]
 
-The pool quote reserve falls by (q_g(1-c)), because LP-retained fees remain in reserves.
+The pool quote reserve falls by (q_g(1-c_sell)), because LP-retained fees remain in reserves.
 
 Let (t=T/x). The post-swap marginal-price ratio is:
 
 [
-rac{P'}{P}=rac{1+ct}{(1+t)^2}
+rac{P'}{P}=rac{1+c_sell t}{(1+t)^2}
 ]
 
 For a target downward price impact (delta):
 
 [
-(1-delta)t^2+[2(1-delta)-c]t-delta=0
+(1-delta)t^2+[2(1-delta)-c_sell]t-delta=0
 ]
 
 The positive root determines token sell depth. The simulator reports token input, gross quote removed, and net quote received.
@@ -164,6 +165,8 @@ The virtual field is an i128 and may be negative. PumpSwap V2 can retain protoco
 This distinction matters for accounting: the raw quote vault can rise while effective quote reserves rise by a smaller amount, remain unchanged, or move differently after fee sweeps and virtual-reserve adjustments. R04 must reconcile the raw vault and signed virtual component separately, not just their sum.
 
 R03's continuous pool model stores the net pricing reserve and tracks protocol fees separately. That is an approximation of effective reserves; it does not yet model the raw quote vault and signed virtual reserve as two independent state variables. R04 therefore stores and reconciles both components from chain data. Never compare a simulated effective quote reserve directly with the raw quote-vault balance.
+
+The current simulator's generic `ConstantProductPool` is a two-component abstraction (total pool fee split between LP and protocol); it is not a complete PumpSwap canonical-pool fee adapter. The official [Pump.fun fee schedule](https://pump.fun/docs/fees), last updated 16 November 2026, lists separate Creator, Protocol and LP fees, with canonical PumpSwap rates tiered by SOL/USDC market capitalization. Creator fees are a separate quote-asset flow and must be tracked as claimable treasury revenue only when the creator/beneficiary is entitled to them; they are not LP reserve yield. If creator fees are routed to a charity or holder-rewards vault, they are not Dev treasury income. LP fees retained in effective pool reserves are already included in the LP reserve claim and must not be counted twice.
 
 Fee schedules and instruction variants are slot-dependent. PumpSwap V1/V2 and Bonding Curve legacy/V2/V3 trades may coexist on the same pool or curve. Historical replay must use the fee and reserve semantics active for each transaction, rather than applying the latest global configuration to all historical trades.
 
