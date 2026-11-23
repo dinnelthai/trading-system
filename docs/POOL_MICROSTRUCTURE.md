@@ -290,7 +290,7 @@ An unmatched candle can be caused by feed latency moving the event across a bar 
 
 ## 7. Market-quality metric integration
 
-R03 supplies the pool-level primitives for the broader R08–R19 market-quality system: fee-aware side-specific depth, LP ownership, pool-state events, execution/VWAP price and true-versus-observed candle diagnostics. The cross-venue reference, basis recovery, trade markout, fairness and lifecycle metrics are specified in [Market Quality Metrics](MARKET_QUALITY_METRICS.md) and are not implied to be implemented by R03.
+R03 supplies the pool-level primitives for the broader R08–R19 market-quality system: fee-aware side-specific depth, LP ownership, pool-state events, execution/VWAP price and true-versus-observed candle diagnostics. The cross-venue reference, basis recovery, trade markout, fairness and lifecycle metrics are specified in [Market Quality Metrics](MARKET_QUALITY_METRICS.md) and are not implied to be implemented by R03. PumpSwap account normalization and signed virtual-reserve/fee-sweep accounting are implemented separately in [PumpSwap State Adapter](PUMPSWAP_ADAPTER.md); instruction-exact quote and LP accounting remain open.
 
 ## 7. Implementation
 
