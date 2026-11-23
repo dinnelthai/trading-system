@@ -127,6 +127,8 @@ The pool is a configurable constant-product AMM. Buys and sells use fee-adjusted
 
 LP shares are proportional claims on pool reserves. Initial migration LP shares can be marked locked/burned. Additional Dev and LP-provider positions are separately accounted for. LP cost basis is tracked across deposits and withdrawals to prevent double-counting PnL.
 
+PumpSwap pricing uses effective quote reserves: raw quote-vault balance plus the signed virtual quote reserve (i128), which may be negative. R03 currently models the net effective pricing reserve and does not keep those two on-chain components as independent state variables; R04 replay records both. Historical fee schedules and legacy/V2/V3 instruction variants must be selected by slot, not assumed constant.
+
 R03 distinguishes pre-trade marginal spot price, swap execution/VWAP price, and post-trade marginal spot price. It solves buy and sell depth at 1%, 5%, and 10% marginal price impact using the actual LP/protocol fee split. The summary includes pool (k), quote-denominated TVL, depth, LP locked/agent/unassigned ownership, LP-share HHI, and liquidity add/remove totals.
 
 Pool-state events can record migration, LP additions, LP removals, and swaps with before/after reserves, price, (k), and depth. The detailed trace is opt-in through `record_pool_event_trace=true`; aggregate metrics remain available by default. See [R03 — Pool Microstructure and Candle Diagnostics](POOL_MICROSTRUCTURE.md).
