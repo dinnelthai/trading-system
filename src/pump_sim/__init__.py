@@ -21,6 +21,7 @@ from .market_quality import (
     measure_recovery_time,
     trade_markout,
 )
+from .routing import RouteDecision, RouteIntent, VenueQuote, choose_route
 from .pumpswap_adapter import PumpSwapPoolState, PumpSwapStateAdapter
 
 __all__ = [
@@ -46,4 +47,8 @@ __all__ = [
     "log_basis",
     "measure_recovery_time",
     "trade_markout",
+    "RouteDecision",
+    "RouteIntent",
+    "VenueQuote",
+    "choose_route",
 ]
