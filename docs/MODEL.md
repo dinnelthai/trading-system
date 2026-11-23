@@ -26,7 +26,7 @@ The event engine processes participant activations and block settlements in time
 | LP provider | Earn fees while managing inventory exposure | May acquire inventory during the curve; adds liquidity after migration when fee opportunity compensates for risk; withdraws when its risk threshold is breached |
 | MEV / sandwich-risk actor | Represent adverse execution pressure | Estimates execution-risk exposure from trade size and depth; abstract stress-test overlay, not a live sandwich bot |
 
-The current Dev treasury sale behavior is a simple configured vesting-sale baseline, not an adaptive optimal-stopping policy. The target policy is specified in DEV_TREASURY_EXIT.md and remains research-only until implemented and validated.
+The simulator supports proportional and fractional LP withdrawal, with pro-rata LP cost-basis release. The CPMM sell path retains the configured LP fee share in pool reserves and removes the protocol share. Its fee model is still a simplified two-component abstraction, not the full versioned Pump creator/protocol/LP schedule. The current Dev treasury sale behavior is a simple configured vesting-sale baseline, not an adaptive optimal-stopping policy. The target policy is specified in DEV_TREASURY_EXIT.md and remains research-only until implemented and validated.
 
 The default Pump-style scenario has no pre-minted Dev allocation. Dev allocation, other locked supply, and external token inventory remain configurable for non-standard launches. Initial wallet capital is sampled from role-specific bounded log-normal distributions. Trait multipliers are also sampled multiplicatively, so a role is a population distribution rather than one fixed personality.
 
