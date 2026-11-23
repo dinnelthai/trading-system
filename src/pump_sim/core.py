@@ -36,6 +36,8 @@ class SimConfig:
     curve_fee_bps: float = 100.0
     pool_fee_bps: float = 30.0
     dev_lp_quote_budget: float = 10.0
+    external_fee_bps: float = 8.0
+    external_depth_quote: float = 50.0
 
     n_snipers: int = 12
     n_kols: int = 3
@@ -80,6 +82,7 @@ class Traits:
     dev_overhang_sensitivity: float
     loss_aversion: float
     slippage_tolerance_bps: float
+    migration_exit_probability: float
 
     @classmethod
     def sample(cls, rng: random.Random, kind: str) -> "Traits":
@@ -108,6 +111,7 @@ class Traits:
             dev_overhang_sensitivity=jitter(p[9], 0.0, 3.0),
             loss_aversion=jitter(p[10], 1.0, 4.0),
             slippage_tolerance_bps=jitter(p[11], 100, 2000) if p[11] else 0.0,
+            migration_exit_probability=max(0.0, min(0.99, {"sniper": 0.82, "retail": 0.08, "whale": 0.04}.get(kind, 0.0) * rng.uniform(0.7, 1.2))),
         )
 
 
@@ -155,6 +159,7 @@ class Trade:
 class Snapshot:
     timestamp: float
     phase: Phase
+    pool_age_s: float
     price: float
     reference_price: float
     momentum: float
@@ -351,6 +356,9 @@ class Agent:
             return None
 
         if self.kind == "dev":
+            if s.phase == Phase.POOL and self.account.lp_shares > EPS and s.volatility > 0.045 * self.traits.loss_aversion:
+                if self.rng.random() < 0.25:
+                    return Action("remove_lp")
             return None
 
         if self.kind == "mev_risk":
@@ -360,15 +368,17 @@ class Agent:
             edge = math.log(max(s.reference_price, EPS) / max(s.price, EPS))
             threshold = max(0.003, 0.5 * (self.traits.slippage_tolerance_bps / 10_000.0))
             if edge > threshold and self.account.quote > 0.05:
-                return Action("buy", amount=min(self.account.quote, max(0.05, self.account.quote * self.rng.uniform(0.03, 0.18))))
-            if edge < -threshold and self.account.tokens > 1.0:
-                return Action("sell", amount=self.account.tokens * self.rng.uniform(0.05, 0.25))
+                return Action("arb_buy_local", amount=min(self.account.quote * 0.5, self.account.quote * self.rng.uniform(0.03, 0.18)))
+            if edge < -threshold and self.account.quote > 0.05:
+                return Action("arb_sell_local", amount=min(self.account.quote * 0.5, self.account.quote * self.rng.uniform(0.03, 0.18)))
             return None
 
         utility = self.signal(s)
         if self.kind == "sniper":
             if self.account.tokens <= EPS and s.phase == Phase.CURVE and s.timestamp < 300 and utility > -0.05:
                 return Action("buy", amount=min(self.account.quote, max(0.02, self.account.quote * self.rng.uniform(0.08, 0.35))))
+            if self.account.tokens > EPS and s.phase == Phase.POOL and s.pool_age_s <= 10.0 and self.rng.random() < self.traits.migration_exit_probability:
+                return Action("sell", amount=self.account.tokens * self.rng.uniform(0.75, 1.0))
             age = s.timestamp - self.account.last_entry_time
             gain = s.price / max(self.account.avg_entry_price, EPS) - 1.0 if self.account.avg_entry_price else 0.0
             if self.account.tokens > EPS and (age > self.traits.horizon_s or gain > self.rng.uniform(0.12, 0.65) or utility < -0.65):
@@ -412,7 +422,8 @@ class Market:
         self.pool: Optional[ConstantProductPool] = None
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
-        self.locked_supply = config.other_locked_supply + config.dev_allocation * config.dev_locked_fraction
+        dev_unlocked = config.dev_allocation * (1.0 - config.dev_locked_fraction)
+        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - config.curve_real_token_reserve)
 
     @property
     def price(self) -> float:
@@ -466,7 +477,8 @@ class SimulationEngine:
         self.sentiment = 0.0
         self.project_quality = self.rng.uniform(0.25, 0.85)
         self.regime = "quiet"
-        self.reference_price = self.market.price
+        self.initial_price = self.market.price
+        self.reference_price = self.initial_price
         self.price_history: Deque[float] = deque([self.market.price], maxlen=120)
         self.return_history: Deque[float] = deque(maxlen=60)
         self.trades: List[Trade] = []
@@ -555,8 +567,9 @@ class SimulationEngine:
         dev_float = dev_tokens / circulating
         progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
         recent_volume = sum(t.quote_amount for t in self.trades if timestamp - 60 <= t.timestamp <= timestamp)
+        pool_age = max(0.0, timestamp - self.market.graduated_at) if self.market.graduated_at is not None else 0.0
         return Snapshot(
-            timestamp, self.market.phase, price, self.reference_price, momentum, volatility,
+            timestamp, self.market.phase, pool_age, price, self.reference_price, momentum, volatility,
             self.attention, self.sentiment, self.config.dev_allocation / self.config.total_supply,
             dev_float, self.config.dev_locked_fraction, top_holder, progress,
             self.market.depth_quote, recent_volume,
@@ -638,7 +651,36 @@ class SimulationEngine:
             agent.account.lp_shares = 0.0
             return
 
-        if action.kind == "buy":
+        if action.kind == "arb_buy_local":
+            quote_in = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
+            if quote_in > EPS:
+                execution = self.market.buy(quote_in)
+                if execution.amount_out > EPS:
+                    external_gross = execution.amount_out * self.reference_price
+                    external_fee = external_gross * self.config.external_fee_bps / 10_000.0
+                    external_proceeds = external_gross - external_fee
+                    agent.account.quote += external_proceeds - execution.amount_in
+                    agent.account.realized_pnl += external_proceeds - execution.amount_in
+                    agent.account.fees_paid += execution.fee + external_fee
+                    trade_price = execution.amount_in / execution.amount_out
+                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
+                                              execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0))
+        elif action.kind == "arb_sell_local":
+            quote_budget = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
+            external_fee_rate = self.config.external_fee_bps / 10_000.0
+            token_in = quote_budget / max(self.reference_price * (1.0 + external_fee_rate), EPS)
+            external_cost = token_in * self.reference_price * (1.0 + external_fee_rate)
+            if token_in > EPS and external_cost <= agent.account.quote:
+                execution = self.market.sell(token_in)
+                if execution.amount_in > EPS and execution.amount_out > EPS:
+                    agent.account.quote += execution.amount_out - external_cost
+                    agent.account.realized_pnl += execution.amount_out - external_cost
+                    agent.account.fees_paid += execution.fee + external_cost - token_in * self.reference_price
+                    gross_quote = execution.amount_out + execution.fee
+                    trade_price = gross_quote / execution.amount_in
+                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
+                                              execution.amount_in, gross_quote, trade_price, execution.fee, 0.0))
+        elif action.kind == "buy":
             quote_in = min(action.amount, agent.account.quote)
             if quote_in <= EPS:
                 return
@@ -677,9 +719,10 @@ class SimulationEngine:
                 agent.account.tokens = 0.0
                 agent.account.avg_entry_price = 0.0
             agent.account.fees_paid += execution.fee
-            price = execution.amount_out / execution.amount_in
+            gross_quote = execution.amount_out + execution.fee
+            price = gross_quote / execution.amount_in
             trade = Trade(timestamp, agent.agent_id, agent.kind, "sell", self.market.phase.value,
-                          execution.amount_in, execution.amount_out, price, execution.fee, mev_cost)
+                          execution.amount_in, gross_quote, price, execution.fee, mev_cost)
             self._record_trade(trade)
 
         if self.market.maybe_migrate(timestamp):
@@ -742,7 +785,8 @@ class SimulationEngine:
             "duration_s": self.config.duration_s,
             "final_price": price,
             "reference_price": self.reference_price,
-            "price_return": price / max(self.market.curve.virtual_quote_reserve / max(self.market.curve.virtual_tokens, EPS), EPS) - 1.0,
+            "initial_price": self.initial_price,
+            "price_return": price / max(self.initial_price, EPS) - 1.0,
             "max_drawdown": self.max_drawdown,
             "trades": len(self.trades),
             "true_volume_quote": true_volume,
@@ -760,6 +804,8 @@ class SimulationEngine:
             "dev_supply_share": self.config.dev_allocation / self.config.total_supply,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
             "dev_locked_tokens": self.config.dev_allocation * self.config.dev_locked_fraction,
+            "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
+            "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
             "participants": dict(outcomes),
         }
 
