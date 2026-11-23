@@ -87,6 +87,10 @@ One JSON object per line. Raw token and quote quantities are integer atoms; neve
 | source | Archive/indexer source identifier |
 | decoder_version | Version of the protocol decoder |
 | route_id / hop_index | Optional multi-hop route identity and zero-based hop order; supplied together on swap events only |
+| token_program_id / quote_token_program_id | Token Program or Token-2022 owner program for each mint |
+| token_extension_snapshot_id | Reference to a sidecar mint-extension snapshot, including the RPC context slot and raw-data hash |
+| token_transfer_fee_raw / quote_transfer_fee_raw | Actual withheld Token-2022 transfer fees in raw atoms, decoded from the transaction |
+| transfer_hook_invoked | True only when the transfer-hook CPI is present in the transaction's inner instructions |
 
 ### Event types
 
@@ -142,6 +146,23 @@ Official protocol references:
 - [Negative virtual quote reserves](https://github.com/pump-fun/pump-public-docs/blob/main/docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md)
 
 All raw amount fields are integer strings or JSON integers. Decimal floats are rejected. This prevents precision loss in reserve comparisons.
+
+### Token Program and Token-2022 metadata (schema v1.1)
+
+For every mint, record its owning token program ID. The two standard programs are:
+- Token Program: `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`
+- Token-2022: `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`
+
+Token-2022 keeps the base mint layout but can append TLV extensions. Preserve the full raw mint account bytes, account owner, RPC context slot, SHA-256, extension type IDs, and extension payloads in a sidecar snapshot. Unknown extension IDs must be retained as unknown, not discarded or guessed. The replay event references that sidecar using `token_extension_snapshot_id`.
+
+Do not infer that a Token-2022 mint has transfer fees or a transfer hook just from its program owner. These are opt-in extensions. When present, decode the effective fee configuration for the transaction's epoch and record the actual per-transfer withheld fee in `token_transfer_fee_raw` / `quote_transfer_fee_raw`. Set `transfer_hook_invoked=true` only when the transaction's inner instructions prove the hook CPI occurred.
+
+A current mint snapshot is not automatically historical truth. Transfer-fee settings can be changed with epoch-based activation. For historical replay, reconstruct the configuration active at the event slot from initialization/update instructions or a trustworthy historical account-state source. Never apply today's transfer-fee settings retroactively.
+
+Official references:
+- [Solana token programs and program ownership](https://solana.com/docs/payments/how-payments-work)
+- [Token-2022 extension types](https://github.com/solana-program/token-2022/blob/main/clients/js-legacy/src/extensions/extensionType.ts)
+- [Token-2022 transfer hook](https://solana.com/docs/tokens/extensions/transfer-hook)
 
 ## 5. Replay invariants
 
