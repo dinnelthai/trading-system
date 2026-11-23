@@ -284,12 +284,22 @@ class NormalizedEvent:
         )
         if any(value is not None and value < 0 for value in raw_amounts):
             raise ValueError(f"event row {line_number}: raw amounts and reserves must be nonnegative")
+        if any(value is not None and value > (2**64 - 1) for value in raw_amounts):
+            raise ValueError(f"event row {line_number}: unsigned raw amount exceeds u64")
+        for signed_value in (
+            event.pool_virtual_quote_reserve_before_raw,
+            event.pool_virtual_quote_reserve_after_raw,
+        ):
+            if signed_value is not None and not (-(2**127) <= signed_value <= 2**127 - 1):
+                raise ValueError(f"event row {line_number}: virtual quote reserve exceeds i128")
         if event.participant_type and event.participant_type not in VALID_ROLES:
             raise ValueError(f"event row {line_number}: unknown participant_type {event.participant_type!r}")
         if event.hop_index is not None and event.hop_index < 0:
             raise ValueError(f"event row {line_number}: hop_index must be nonnegative")
         if bool(event.route_id) != (event.hop_index is not None):
             raise ValueError(f"event row {line_number}: route_id and hop_index must be supplied together")
+        if event.route_id and event.event_type not in SWAP_EVENT_TYPES:
+            raise ValueError(f"event row {line_number}: route_id/hop_index are valid only on swap events")
 
         if event.event_type in SWAP_EVENT_TYPES:
             if event.side not in {"buy", "sell"}:
