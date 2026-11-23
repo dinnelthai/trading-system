@@ -243,6 +243,8 @@ def test_monte_carlo_reports_distribution_not_only_one_path():
     assert "graduation_time_s" in result["metrics"]
     assert "retail" in result["participant_metrics"]
     assert result["seed_end"] == 12
+    assert 0 <= result["metrics"]["wallet_holder_hhi"]["mean"] <= 1
+    assert result["metrics"]["top_5_holders_share"]["mean"] >= result["metrics"]["top_holder_share_including_dev"]["mean"]
 
 
 def test_parameter_sweep_runs_independent_scenarios():
