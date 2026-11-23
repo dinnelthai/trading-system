@@ -23,17 +23,17 @@ At each simulation step, agents independently decide whether to wake up. Their o
 | Arbitrageur | Capture cross-venue basis after costs | Compares local AMM price with a noisy external reference venue, pays external fees, and is capped by external executable depth |
 | Retail | Make limited-information decisions | Heterogeneous momentum, social-proof, FOMO, noise, risk aversion, and loss aversion |
 | Whale | Manage larger inventory and execution risk | Larger order sizes, higher entry thresholds, lower activity, and greater sensitivity to concentration and market impact |
-| LP provider | Earn fees while managing inventory exposure | Adds liquidity when a fee-yield proxy compensates for volatility risk; withdraws when its risk threshold is breached |
+| LP provider | Earn fees while managing inventory exposure | May acquire inventory during the curve or pool phase; adds liquidity when a fee-yield proxy compensates for volatility risk; withdraws when its risk threshold is breached |
 | MEV / sandwich-risk actor | Represent adverse execution pressure | Estimates potential extraction/slippage exposure from order size relative to depth; it is an abstract risk overlay, not a live sandwich bot |
 
-The initial Dev allocation is 20% of total supply in the default synthetic configuration. 75% of that allocation is treated as locked, while the unlocked portion is held by the Dev account. These are scenario defaults, not recommendations or Pump.fun protocol facts.
+The initial Dev allocation is 20% of total supply in the default synthetic configuration. 75% of that allocation is treated as locked, while the unlocked portion is held by the Dev account. The baseline also assigns 20% to other locked supply, 50% to the curve's real token inventory, and 10% to the external reference venue's token inventory. These are scenario defaults, not recommendations or Pump.fun protocol facts.
 
 ### Behavioral signal
 
 Trader agents use a noisy utility score:
 
 \[
-U_i = a_i M + b_i \log(A) + cS - r_i V - d_i \max(0, D_f - 0.10) + \epsilon_i
+U_i = a_i M + b_i \log(A) + cS + q_i(F-0.5) - r_i V - d_i \max(0, D_f - 0.10) + \epsilon_i
 \]
 
 where:
@@ -41,7 +41,7 @@ where:
 - \(A\) is attention;
 - \(S\) is sentiment;
 - \(V\) is realized volatility;
-- \(D_f\) is Dev's unlocked share of circulating supply;
+- \(F\) is the latent project-quality signal (agents observe it with noise);\n- \(D_f\) is Dev's unlocked token and LP-claim exposure as a share of circulating supply;
 - \(a_i,b_i,r_i,d_i\) are heterogeneous traits;
 - \(\epsilon_i\) is agent-specific noise.
 
