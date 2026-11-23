@@ -569,7 +569,7 @@ latency_i,slippage_i,risk_i,horizon_i,
 signal_i,routeSensitivity_i)
 \]
 
-Use empirically calibrated heavy-tailed capital and order-size distributions, asynchronous arrivals, finite inventory, heterogeneous slippage tolerance and correlated information shocks. A participant's order must be constrained by its available Token/quote balance.
+Use empirically calibrated heavy-tailed capital and order-size distributions, asynchronous arrivals, finite inventory, heterogeneous slippage tolerance and correlated information shocks. A participant's order must be constrained by its available Token/quote balance. The simulator now includes a configurable independent-informed-trader population whose noisy fundamental estimate has lower social sensitivity than the discretionary retail signal; it remains a stylized prior until calibrated against labeled historical behavior.
 
 KOL attention is an information/attention process, not a guaranteed buy order. Arbitrage requires an executable post-fee edge and finite external capacity. LP providers respond to fee opportunity, adverse selection, lock-up and withdrawal risk.
 
