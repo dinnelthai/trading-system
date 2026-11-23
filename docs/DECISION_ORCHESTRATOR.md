@@ -2,7 +2,7 @@
 
 **Document type:** Decision architecture and mathematical research specification  
 **Version:** 0.1  
-**Status:** Architecture defined; solver design and simulation validation remain open  
+**Status:** Architecture and fixed-CPMM transition baseline defined; protocol validation, solver design and simulation validation remain open  
 **Parent specification:** [Market Making & Market Quality System](MARKET_MAKING_MARKET_QUALITY.md)  
 **Primary venue:** Fixed PumpSwap CPMM pool  
 **Strategy scope:** Initial liquidity, proportional LP add/remove, spot inventory and capital-risk management
@@ -339,6 +339,60 @@ Invalidate any proposal whose material preconditions are no longer true. Refresh
 
 Higher-level layers set constraints; lower-level layers cannot silently expand them. A lower-level safety guard may pause actions immediately. Only the designated governance/owner process can change the strategic capital mandate.
 
+### 11.1 Initial cadence and trigger semantics
+
+| Layer | Initial evaluation window | Trigger behavior | Allowed authority |
+|---|---|---|---|
+| L0 — Event safety | Event-driven; seconds-scale observation | Process confirmed swaps, reserve changes, LP events, transaction status and protocol anomalies | May pause new actions; does not resize LP |
+| L1 — Inventory and flow | Rolling 1–5 minute windows | Update flow, inventory, forecast error and risk bands; request an early L2 review on material risk changes | May propose risk-envelope changes within L3 limits |
+| L2 — Liquidity and capital | Periodic 1–4 hour review, plus risk-triggered re-evaluation | Compare proportional ADD / HOLD / REMOVE under the latest scenarios | Requires orchestrator and Risk authorization |
+| L3 — Lifecycle capital | Launch, graduation or explicit mandate change | Set total authorized capital, phase limits, initial pool budget and reserve policy | Requires explicit owner/governance authorization |
+
+These are starting design windows, not universal constants. Calibrate them against block time, event rate, transaction latency, pool depth, forecast horizon and lifecycle phase. A single large swap may trigger a fresh risk evaluation, but it must not automatically trigger an LP resize.
+
+L0 is event-driven for safety and state correctness. An event is not itself a discretionary trading instruction. L1 can request an immediate L2 evaluation when a material risk boundary is crossed. L2 owns capital sizing. L3 owns the authorized capital envelope.
+
+### 11.2 Hysteresis, persistence and cooldown
+
+For a discretionary depth or risk trigger, define:
+
+- Entry threshold \(\theta_{on}\).
+- Exit threshold \(\theta_{off}\), where \(\theta_{off}<\theta_{on}\).
+- Persistence window \(T_{persist}\).
+- Post-confirmation cooldown \(T_{cooldown}\).
+- Explicit emergency-pause conditions.
+
+A discretionary trigger becomes eligible only when it persists for the required observation window, the canonical state is fresh, and the relevant forecast confidence is sufficient. Separate entry and exit thresholds prevent oscillation near a boundary.
+
+Cooldown begins only after a confirmed state transition. A pending or unresolved transaction locks conflicting actions. Expiry of cooldown does not imply that another action should occur; the full state and action set must be recomputed.
+
+Emergency safety pause may override normal cooldown. It does not waive authorization, on-chain precondition checks or state reconciliation for a financial transaction. In particular, stale data must not be used to justify an automatic LP withdrawal.
+
+### 11.3 Forecast-error buffer and regime uncertainty
+
+For predicted flow \(Q_{pred}\) and empirical forecast residual \(\epsilon_Q=Q_{actual}-Q_{pred}\), construct stress demand using a calibrated residual quantile:
+
+\[
+Q_{stress}=Q_{pred}+Quantile_{\alpha}(\epsilon_Q)
+\]
+
+Do not assume Gaussian residuals without empirical evidence. Meme-token flows may be heavy-tailed, clustered and regime-dependent. Calibrate residual distributions by lifecycle phase, forecast horizon and liquidity regime. If the model is out of distribution or confidence is inadequate, widen the scenario set or enter OBSERVE rather than presenting a precise point forecast as certainty.
+
+### 11.4 Operating modes
+
+The orchestrator should expose an explicit operating mode:
+
+| Mode | Entry condition | Permitted behavior |
+|---|---|---|
+| NORMAL | State reconciled and all budgets within limits | Evaluate all authorized candidate actions |
+| DEGRADED_DATA | Stale, missing or conflicting observations | Observe and reconcile; block discretionary financial actions |
+| INVENTORY_DEFENSE | Inventory warning band or stress exposure elevated | Block risk-increasing actions; evaluate separately authorized risk reduction |
+| CAPITAL_CONSERVATION | Reserve or tail-risk budget near limit | Block discretionary capital deployment |
+| EMERGENCY_PAUSE | Protocol, key, accounting or critical safety incident | Stop new discretionary actions and follow incident controls |
+| RECOVERY | Incident resolved but stability not yet demonstrated | Resume gradually after fresh state and a stable observation period |
+
+Mode entry and exit use separate thresholds and dwell periods. Recovery requires transaction reconciliation and verified state consistency. A mode transition itself is not permission to trade.
+
 ## 12. Audit and decision record
 
 For every decision, persist:
@@ -376,6 +430,192 @@ The orchestrator is not accepted until the simulator proves at least:
 11. **Market integrity:** LP events are not counted as swaps; self-trades and fabricated volume are not rewarded.
 12. **Emergency precedence:** a safety pause is not blocked by normal cooldown or churn penalties.
 
+## 15. Exact proportional CPMM LP transition baseline
+
+This section derives the ideal constant-product transition for the fixed-pool strategy. It is an analytical baseline, not a substitute for validating PumpSwap's actual LP mint/burn instructions, fee handling, token extensions, rounding and account semantics.
+
+### 15.1 Definitions and assumptions
+
+Let:
+
+- \(X\): pool Token reserve.
+- \(Y\): pool quote/SOL reserve.
+- \(k=XY\): constant product.
+- \(P=Y/X\): marginal spot price in SOL per Token.
+- \(S\): total LP-share supply.
+- \(\alpha\): Dev's share of total LP supply, so Dev owns \(\alpha S\) LP units.
+- \(X_f,Y_f\): Dev's free Token and SOL inventory.
+
+Assume a standard proportional CPMM with no transfer tax, no protocol-specific reserve adjustment, no fee accrued during the instantaneous action, and no rounding. The implementation adapter must replace these assumptions with verified PumpSwap semantics.
+
+### 15.2 Proportional ADD
+
+Let \(a\geq0\) be the fraction of current pool reserves added. The deposit is:
+
+\[
+\Delta X=aX,\qquad \Delta Y=aY
+\]
+
+Post-add reserves:
+
+\[
+X'=(1+a)X,\qquad Y'=(1+a)Y
+\]
+
+The spot-price ratio is unchanged:
+
+\[
+P'=\frac{Y'}{X'}=\frac{Y}{X}=P
+\]
+
+Under standard proportional LP minting, new LP units are \(aS\). Dev's new share is:
+
+\[
+\alpha'=\frac{\alpha S+aS}{(1+a)S}
+=\frac{\alpha+a}{1+a}
+\]
+
+Dev's post-add LP claims are:
+
+\[
+X'_{LP}=\alpha'X'=(\alpha+a)X
+\]
+
+\[
+Y'_{LP}=\alpha'Y'=(\alpha+a)Y
+\]
+
+The wallet contributes \(aX\) Token and \(aY\) SOL. Therefore, before fees and costs:
+
+- Free Token falls by \(aX\).
+- Free SOL falls by \(aY\).
+- LP underlying claims rise by exactly those amounts.
+- Total current portfolio Token and SOL quantities are unchanged.
+- Current portfolio Delta is unchanged by the reclassification.
+- Pool depth increases by the reserve scale factor \(1+a\).
+- LP Gamma magnitude increases because more of the portfolio is now exposed to the CPMM's concave inventory curve.
+
+Using the ideal CPMM LP value \(V_{LP}=2\alpha\sqrt{kP}\), the LP Gamma is:
+
+\[
+\Gamma_{LP}=-\frac{\alpha}{2}\sqrt{k}P^{-3/2}
+\]
+
+After ADD:
+
+\[
+\Gamma'_{LP}
+=-\frac{\alpha+a}{2}\sqrt{k}P^{-3/2}
+\]
+
+Thus proportional ADD does not create an immediate directional Token purchase when funded from existing pro-rata inventory, but it does increase future inventory sensitivity to price movement. It is a transformation of inventory into LP exposure, not a free reduction of risk.
+
+### 15.3 Proportional REMOVE
+
+Let \(f\in[0,1]\) be the fraction of Dev's own LP units burned. Dev burns \(f\alpha S\) units.
+
+Post-remove pool reserves:
+
+\[
+X'=(1-f\alpha)X,\qquad
+Y'=(1-f\alpha)Y
+\]
+
+Total LP supply becomes \((1-f\alpha)S\), while Dev retains \(\alpha(1-f)S\). Therefore:
+
+\[
+\alpha'=\frac{\alpha(1-f)}{1-f\alpha}
+\]
+
+Dev's remaining LP claims are:
+
+\[
+X'_{LP}=\alpha'X'=\alpha(1-f)X
+\]
+
+\[
+Y'_{LP}=\alpha'Y'=\alpha(1-f)Y
+\]
+
+The wallet receives \(f\alpha X\) Token and \(f\alpha Y\) SOL. Before fees and costs:
+
+- Free Token rises by \(f\alpha X\).
+- Free SOL rises by \(f\alpha Y\).
+- LP claims fall by the same quantities.
+- Total current portfolio Token and SOL quantities are unchanged.
+- Current portfolio Delta is unchanged by the reclassification.
+- Pool depth falls by the reserve scale factor \(1-f\alpha\).
+- Dev's LP Gamma magnitude falls by the fraction \(f\).
+
+The post-remove LP Gamma is:
+
+\[
+\Gamma'_{LP}
+=-\frac{\alpha(1-f)}{2}\sqrt{k}P^{-3/2}
+\]
+
+Therefore REMOVE reduces future LP Gamma exposure but does not, by itself, reduce the Dev's current Token inventory exposure. It moves assets from the LP claim to the wallet and reduces market depth.
+
+### 15.4 Price impact after proportional depth changes
+
+For an ideal fee-free CPMM, a Token input \(q_X\) changes the marginal price by:
+
+\[
+\frac{P'}{P}=
+\left(\frac{X}{X+q_X}\right)^2
+\]
+
+After proportional ADD with reserve scale \(s=1+a\):
+
+\[
+\frac{P'}{P}=
+\left(\frac{sX}{sX+q_X}\right)^2
+=
+\left(1+\frac{q_X}{sX}\right)^{-2}
+\]
+
+For a quote/SOL input \(q_Y\):
+
+\[
+\frac{P'}{P}=
+\left(1+\frac{q_Y}{Y}\right)^2
+\]
+
+After proportional ADD:
+
+\[
+\frac{P'}{P}=
+\left(1+\frac{q_Y}{sY}\right)^2
+\]
+
+ADD therefore reduces the price impact of a given trade size by increasing the reserve denominator. REMOVE has the reverse effect with \(s=1-f\alpha\).
+
+These equations describe marginal-price movement, not execution VWAP or user slippage. Production calculations must use the actual PumpSwap fee path, effective input amount, reserve semantics and token transfer behavior.
+
+### 15.5 Decision implications
+
+1. **ADD is not a buy:** proportional ADD funded from existing wallet assets does not change the spot price or total current Token/SOL holdings before costs.
+2. **ADD increases LP Gamma:** it converts free inventory into an LP claim and increases future inventory sensitivity.
+3. **REMOVE is not a sell:** proportional REMOVE does not sell the received Token; it transfers the underlying claim to free wallet inventory.
+4. **REMOVE reduces depth and Gamma:** it lowers future LP inventory sensitivity but also reduces executable depth.
+5. **Delta and Gamma must be separated:** a strategy can preserve current Delta while materially changing future risk through Gamma and liquidity depth.
+6. **Risk must be measured at portfolio level:** compare the complete pre/post state, including free inventory, LP claims, fees, costs and stress scenarios.
+7. **A fixed pool still requires dynamic capital decisions:** the system dynamically chooses whether and how much to ADD, HOLD or REMOVE; it does not dynamically move the LP price range.
+
+### 15.6 Protocol validation requirements
+
+Before using these equations in production code, verify against the deployed PumpSwap program and historical transactions:
+
+- Exact reserve fields used for pricing.
+- LP-share mint/burn formula and any locked/burned supply.
+- Fee accounting and whether fees alter reserves or separate fee vaults.
+- Token-2022 and transfer-fee behavior, if supported.
+- Rounding direction and minimum deposit/withdrawal constraints.
+- Migration initialization and any special initial LP accounting.
+- Actual wallet and LP claim deltas from confirmed transactions.
+
+A unit test must reconcile predicted and observed reserve, LP-share and wallet-balance changes for both ADD and REMOVE. Any mismatch blocks use of the analytical formula for live sizing.
+
 ## 14. Open research after this specification
 
 The architecture is defined, but the following work remains:
@@ -388,6 +628,6 @@ The architecture is defined, but the following work remains:
 - Implement the orchestrator in the simulator and compare it against simple baseline policies.
 - Validate out-of-sample across multiple launches and market regimes.
 
-**Next research task:** Joint action sequencing and robust scenario evaluation. In particular, derive how proportional LP additions/removals interact with free inventory, reserve capital, transaction costs and forecast uncertainty over the full decision horizon.
+**Next research task:** Validate the proportional CPMM transition baseline against PumpSwap instructions and historical transactions, then implement the joint action evaluator and capital-allocation solver under empirical stress scenarios.
 
 No live execution should be enabled merely because this architecture document is complete. Implementation, simulation, paper execution and live authorization remain separate gates.
