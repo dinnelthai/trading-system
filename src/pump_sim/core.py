@@ -508,6 +508,22 @@ class Market:
             return self.curve.buy(quote_in)
         return self.pool.buy(quote_in)  # type: ignore[union-attr]
 
+    def preview_sell(self, token_in: float) -> float:
+        if token_in <= 0:
+            return 0.0
+        if self.phase == Phase.CURVE:
+            if self.curve.real_quote <= EPS:
+                return 0.0
+            max_tokens = self.curve.real_quote * self.curve.virtual_tokens / max(self.curve.virtual_quote - self.curve.real_quote, EPS)
+            used = min(token_in, max_tokens)
+            gross = self.curve.virtual_quote * used / max(self.curve.virtual_tokens + used, EPS)
+            return gross * (1.0 - self.curve.fee_rate)
+        pool = self.pool
+        if pool is None or pool.token_reserve <= EPS or pool.quote_reserve <= EPS:
+            return 0.0
+        gross = pool.quote_reserve * token_in / (pool.token_reserve + token_in)
+        return gross * (1.0 - pool.fee_rate)
+
     def sell(self, token_in: float) -> Execution:
         if self.phase == Phase.CURVE:
             return self.curve.sell(token_in)
@@ -761,7 +777,7 @@ class SimulationEngine:
                 if expected_proceeds <= self.market.external_quote_reserve + EPS:
                     break
                 quote_in *= 0.5
-            if quote_in > EPS:
+            if quote_in > EPS and expected_proceeds > quote_in + EPS:
                 execution = self.market.buy(quote_in)
                 if execution.amount_out > EPS:
                     external_gross = execution.amount_out * self.reference_price
@@ -780,7 +796,8 @@ class SimulationEngine:
             external_fee_rate = self.config.external_fee_bps / 10_000.0
             token_in = min(quote_budget / max(self.reference_price * (1.0 + external_fee_rate), EPS), self.market.external_token_reserve * 0.20)
             external_cost = token_in * self.reference_price * (1.0 + external_fee_rate)
-            if token_in > EPS and external_cost <= agent.account.quote:
+            expected_local_proceeds = self.market.preview_sell(token_in)
+            if token_in > EPS and external_cost <= agent.account.quote and expected_local_proceeds > external_cost + EPS:
                 execution = self.market.sell(token_in)
                 if execution.amount_in > EPS and execution.amount_out > EPS:
                     external_cost_used = execution.amount_in * self.reference_price * (1.0 + external_fee_rate)
