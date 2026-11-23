@@ -37,9 +37,10 @@ EXTENSION_NAMES = {
     21: "TokenGroup",
     22: "GroupMemberPointer",
     23: "TokenGroupMember",
-    24: "ScaledUiAmount",
-    25: "Pausable",
-    26: "PausableAccount",
+    25: "ScaledUiAmountConfig",
+    26: "PausableConfig",
+    27: "PausableAccount",
+    28: "PermissionedBurn",
 }
 
 
@@ -75,6 +76,9 @@ def parse_mint_account_data(encoded: str, owner_program: str) -> Dict[str, Any]:
         return result
 
     offset = 166
+    if offset == len(raw):
+        result["extension_parse_status"] = "no_extension_tlv"
+        return result
     extensions = []
     while offset < len(raw):
         if offset + 4 > len(raw):
@@ -127,10 +131,20 @@ def _account_snapshot(rpc_url: str, mint: str, *, timeout_s: float, max_retries:
     if owner not in {TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID}:
         raise ValueError(f"mint owner is not a supported token program: {owner}")
     parsed = parse_mint_account_data(data[0], owner)
+    context = response.get("result", {}).get("context", {})
+    context_slot = context.get("slot") if isinstance(context, Mapping) else None
+    snapshot_id = (
+        f"{mint}:{context_slot}:{parsed['raw_data_sha256']}"
+        if context_slot is not None else None
+    )
+    if not parsed["is_initialized"]:
+        raise ValueError(f"mint account is not initialized: {mint}")
     return {
         "address": mint,
         "owner_program_id": owner,
         "token_program": "Token-2022" if owner == TOKEN_2022_PROGRAM_ID else "Token Program",
+        "context_slot": context_slot,
+        "snapshot_id": snapshot_id,
         "lamports": value.get("lamports"),
         "rent_epoch": value.get("rentEpoch"),
         **parsed,
@@ -148,7 +162,9 @@ def _token_supply(rpc_url: str, mint: str, *, timeout_s: float, max_retries: int
     value = response.get("result", {}).get("value")
     if not isinstance(value, Mapping):
         raise ValueError(f"getTokenSupply returned no value for {mint}")
+    context = response.get("result", {}).get("context", {})
     return {
+        "context_slot": context.get("slot") if isinstance(context, Mapping) else None,
         "amount_raw": str(value.get("amount")),
         "decimals": value.get("decimals"),
         "ui_amount_string": value.get("uiAmountString"),
