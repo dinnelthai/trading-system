@@ -1013,8 +1013,25 @@ class SimulationEngine:
         observed_volume = sum(c.volume_quote for c in observed_bars)
         true_volume = sum(c.volume_quote for c in true_bars)
         market_token_inventory = self.market.curve.real_tokens if self.market.pool is None else self.market.pool.token_reserve
-        agent_token_inventory = sum(a.account.tokens for a in self.agents)
-        accounted_supply = agent_token_inventory + market_token_inventory + self.market.external_token_reserve + self.market.locked_supply
+        agent_token_inventory = math.fsum(a.account.tokens for a in self.agents)
+        accounted_supply = math.fsum((agent_token_inventory, market_token_inventory, self.market.external_token_reserve, self.market.locked_supply))
+        curve_trades = [trade for trade in self.trades if trade.phase == Phase.CURVE.value]
+        pool_trades = [trade for trade in self.trades if trade.phase == Phase.POOL.value]
+        def flow_metrics(tape: List[Trade]) -> Dict[str, float]:
+            buys = [trade for trade in tape if trade.side in ("buy", "arb_buy_local")]
+            sells = [trade for trade in tape if trade.side in ("sell", "arb_sell_local")]
+            buy_volume = math.fsum(trade.quote_amount for trade in buys)
+            sell_volume = math.fsum(trade.quote_amount for trade in sells)
+            return {
+                "buy_trades": len(buys),
+                "sell_trades": len(sells),
+                "buy_volume_quote": buy_volume,
+                "sell_volume_quote": sell_volume,
+                "net_quote_flow": buy_volume - sell_volume,
+            }
+        curve_flow = flow_metrics(curve_trades)
+        pool_flow = flow_metrics(pool_trades)
+        curve_progress = min(1.0, self.market.curve.real_quote / max(self.config.graduation_quote_reserve, EPS))
         true_by_start = {bar.start: bar for bar in true_bars}
         observed_by_start = {bar.start: bar for bar in observed_bars}
         matched_starts = sorted(set(true_by_start) & set(observed_by_start))
@@ -1041,6 +1058,19 @@ class SimulationEngine:
             "price_return": price / max(self.initial_price, EPS) - 1.0,
             "max_drawdown": self.max_drawdown,
             "trades": len(self.trades),
+            "curve_real_quote_reserve": self.market.curve.real_quote,
+            "curve_real_token_reserve": self.market.curve.real_tokens,
+            "curve_progress": curve_progress,
+            "curve_buy_trades": curve_flow["buy_trades"],
+            "curve_sell_trades": curve_flow["sell_trades"],
+            "curve_buy_volume_quote": curve_flow["buy_volume_quote"],
+            "curve_sell_volume_quote": curve_flow["sell_volume_quote"],
+            "curve_net_quote_flow": curve_flow["net_quote_flow"],
+            "pool_buy_trades": pool_flow["buy_trades"],
+            "pool_sell_trades": pool_flow["sell_trades"],
+            "pool_buy_volume_quote": pool_flow["buy_volume_quote"],
+            "pool_sell_volume_quote": pool_flow["sell_volume_quote"],
+            "pool_net_quote_flow": pool_flow["net_quote_flow"],
             "true_volume_quote": true_volume,
             "observed_volume_quote": observed_volume,
             "observed_to_true_volume_ratio": observed_volume / max(true_volume, EPS),
@@ -1108,7 +1138,10 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
         return ys[lo] * (hi - pos) + ys[hi] * (pos - lo)
 
     metrics = {}
-    for key in ("final_price", "price_return", "max_drawdown", "trades", "true_volume_quote",
+    for key in ("final_price", "price_return", "max_drawdown", "trades",
+                "curve_real_quote_reserve", "curve_progress", "curve_buy_volume_quote",
+                "curve_sell_volume_quote", "curve_net_quote_flow", "pool_buy_volume_quote",
+                "pool_sell_volume_quote", "pool_net_quote_flow", "true_volume_quote",
                 "fees_quote", "external_fees_quote", "total_fees_including_external_quote",
                 "lp_fees_quote", "estimated_mev_risk_cost_quote",
                 "dev_float_share", "top_holder_share", "top_holder_share_including_dev", "top_5_holders_share",
