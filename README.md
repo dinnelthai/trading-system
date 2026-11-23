@@ -84,6 +84,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 - [Market Making & Market Quality System — product direction and research specification](docs/MARKET_MAKING_MARKET_QUALITY.md)
 - [Market Making Decision Orchestrator — arbitration, hard constraints and action selection](docs/DECISION_ORCHESTRATOR.md)
 - [Dev Treasury & Exit Intelligence — optimal stopping, route-aware exit and beneficial-owner accounting](docs/DEV_TREASURY_EXIT.md)
+- [Dev LP vs Treasury — dynamic capital allocation, LP Fee/LVR and Creator Fee separation](docs/DEV_LP_TREASURY_ALLOCATION.md)
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)
