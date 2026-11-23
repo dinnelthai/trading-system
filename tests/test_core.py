@@ -113,7 +113,10 @@ def test_post_migration_pool_runs_agents_and_preserves_supply():
         n_mev_risk_agents=1,
     )
     engine = SimulationEngine(config)
-    engine.market.buy(2.0)
+    seed_holder = next(a for a in engine.agents if a.kind == "sniper")
+    seed_buy = engine.market.buy(2.0)
+    seed_holder.account.tokens += seed_buy.amount_out
+    seed_holder.account.avg_entry_price = seed_buy.amount_in / seed_buy.amount_out
     assert engine.market.maybe_migrate(0.0)
     engine._handle_migration()
     assert engine.dev.account.lp_shares > 0
