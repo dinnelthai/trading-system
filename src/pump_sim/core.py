@@ -58,6 +58,10 @@ class SimConfig:
             raise ValueError("duration_s and step_s must be positive")
         if self.total_supply <= 0:
             raise ValueError("total_supply must be positive")
+        if self.block_interval_s <= 0 or self.candle_interval_s <= 0:
+            raise ValueError("block_interval_s and candle_interval_s must be positive")
+        if not 0 <= self.curve_fee_bps < 10_000 or not 0 <= self.pool_fee_bps < 10_000:
+            raise ValueError("AMM fee bps must be in [0, 10000)")
         if self.dev_allocation + self.other_locked_supply + self.curve_real_token_reserve > self.total_supply:
             raise ValueError("initial token allocations exceed total_supply")
         if not 0 <= self.dev_locked_fraction <= 1:
@@ -673,9 +677,10 @@ class SimulationEngine:
             if token_in > EPS and external_cost <= agent.account.quote:
                 execution = self.market.sell(token_in)
                 if execution.amount_in > EPS and execution.amount_out > EPS:
-                    agent.account.quote += execution.amount_out - external_cost
-                    agent.account.realized_pnl += execution.amount_out - external_cost
-                    agent.account.fees_paid += execution.fee + external_cost - token_in * self.reference_price
+                    external_cost_used = execution.amount_in * self.reference_price * (1.0 + external_fee_rate)
+                    agent.account.quote += execution.amount_out - external_cost_used
+                    agent.account.realized_pnl += execution.amount_out - external_cost_used
+                    agent.account.fees_paid += execution.fee + external_cost_used - execution.amount_in * self.reference_price
                     gross_quote = execution.amount_out + execution.fee
                     trade_price = gross_quote / execution.amount_in
                     self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
@@ -748,8 +753,8 @@ class SimulationEngine:
 
             settle_until = now + self.config.step_s
             while self.order_queue and self.order_queue[0][0] <= settle_until:
-                _, _, _, agent, action = heapq.heappop(self.order_queue)
-                self._execute(agent, action, settle_until)
+                block_time, _, _, agent, action = heapq.heappop(self.order_queue)
+                self._execute(agent, action, block_time)
             if self.market.maybe_migrate(settle_until):
                 self._handle_migration()
 
@@ -761,6 +766,11 @@ class SimulationEngine:
             self.peak_price = max(self.peak_price, price)
             self.max_drawdown = max(self.max_drawdown, 1.0 - price / max(self.peak_price, EPS))
 
+        while self.order_queue:
+            block_time, _, _, agent, action = heapq.heappop(self.order_queue)
+            self._execute(agent, action, block_time)
+        if self.market.maybe_migrate(float(self.config.duration_s)):
+            self._handle_migration()
         self._drain_feed(float("inf"))
         return self.summary()
 
@@ -804,6 +814,7 @@ class SimulationEngine:
             "dev_supply_share": self.config.dev_allocation / self.config.total_supply,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
             "dev_locked_tokens": self.config.dev_allocation * self.config.dev_locked_fraction,
+            "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
             "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
             "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
             "participants": dict(outcomes),
