@@ -9,6 +9,16 @@ from .market_events import (
     Finality,
     QuoteNotionalBasis,
 )
+from .market_integrity import (
+    DepthObservation,
+    IntegrityConfig,
+    IntegrityFlag,
+    MarketIntegrityAnalyzer,
+    MarketIntegrityMetrics,
+    MarketIntegrityReport,
+    WalletEvidenceKind,
+    WalletLinkEvidence,
+)
 from .market_quality import (
     MarketQualityObservation,
     MarketQualityThresholds,
@@ -46,6 +56,14 @@ __all__ = [
     "EventLedger",
     "Finality",
     "QuoteNotionalBasis",
+    "DepthObservation",
+    "IntegrityConfig",
+    "IntegrityFlag",
+    "MarketIntegrityAnalyzer",
+    "MarketIntegrityMetrics",
+    "MarketIntegrityReport",
+    "WalletEvidenceKind",
+    "WalletLinkEvidence",
     "MarketQualityObservation",
     "MarketQualityThresholds",
     "ReferenceQuote",
