@@ -84,6 +84,20 @@ def _signed_integer(row: Mapping[str, Any], key: str, line_number: int) -> Optio
         raise ValueError(f"event row {line_number}: {key} must be a signed integer, got {raw!r}") from exc
 
 
+def _optional_bool(row: Mapping[str, Any], key: str, line_number: int) -> Optional[bool]:
+    raw = row.get(key)
+    if raw is None or str(raw).strip() == "":
+        return None
+    if isinstance(raw, bool):
+        return raw
+    rendered = str(raw).strip().lower()
+    if rendered in {"true", "1", "yes"}:
+        return True
+    if rendered in {"false", "0", "no"}:
+        return False
+    raise ValueError(f"event row {line_number}: {key} must be a boolean")
+
+
 def _number(row: Mapping[str, Any], key: str, line_number: int, *, required: bool = False) -> Optional[float]:
     raw = row.get(key)
     if raw is None or str(raw).strip() == "":
@@ -119,6 +133,12 @@ class NormalizedEvent:
     quote_decimals: int
     source: str
     decoder_version: str
+    token_program_id: str = ""
+    quote_token_program_id: str = ""
+    token_extension_snapshot_id: str = ""
+    token_transfer_fee_raw: int = 0
+    quote_transfer_fee_raw: int = 0
+    transfer_hook_invoked: Optional[bool] = None
     actor_wallet: str = ""
     owner_wallet: str = ""
     position_id: str = ""
@@ -189,7 +209,7 @@ class NormalizedEvent:
     @classmethod
     def from_mapping(cls, row: Mapping[str, Any], line_number: int = 1) -> "NormalizedEvent":
         schema_version = _required_text(row, "schema_version", line_number)
-        if schema_version != "1.0":
+        if schema_version not in {"1.0", "1.1"}:
             raise ValueError(f"event row {line_number}: unsupported schema_version {schema_version!r}")
 
         event_type = _required_text(row, "event_type", line_number).lower()
@@ -230,6 +250,12 @@ class NormalizedEvent:
             quote_decimals=quote_decimals,
             source=_required_text(row, "source", line_number),
             decoder_version=_required_text(row, "decoder_version", line_number),
+            token_program_id=str(row.get("token_program_id") or "").strip(),
+            quote_token_program_id=str(row.get("quote_token_program_id") or "").strip(),
+            token_extension_snapshot_id=str(row.get("token_extension_snapshot_id") or "").strip(),
+            token_transfer_fee_raw=_integer(row, "token_transfer_fee_raw", line_number, default=0),  # type: ignore[arg-type]
+            quote_transfer_fee_raw=_integer(row, "quote_transfer_fee_raw", line_number, default=0),  # type: ignore[arg-type]
+            transfer_hook_invoked=_optional_bool(row, "transfer_hook_invoked", line_number),
             actor_wallet=str(row.get("actor_wallet") or "").strip(),
             owner_wallet=str(row.get("owner_wallet") or "").strip(),
             position_id=str(row.get("position_id") or "").strip(),
@@ -274,6 +300,7 @@ class NormalizedEvent:
             event.token_amount_raw, event.quote_amount_raw, event.fee_quote_raw,
             event.lp_fee_quote_raw, event.protocol_fee_quote_raw, event.creator_fee_quote_raw,
             event.buyback_fee_quote_raw, event.cashback_quote_raw, event.holder_rewards_quote_raw,
+            event.token_transfer_fee_raw, event.quote_transfer_fee_raw,
             event.pool_quote_vault_before_raw, event.pool_quote_vault_after_raw,
             event.base_reserve_before_raw, event.quote_reserve_before_raw,
             event.base_reserve_after_raw, event.quote_reserve_after_raw,
@@ -292,6 +319,14 @@ class NormalizedEvent:
         ):
             if signed_value is not None and not (-(2**127) <= signed_value <= 2**127 - 1):
                 raise ValueError(f"event row {line_number}: virtual quote reserve exceeds i128")
+        supported_token_programs = {
+            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+            "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        }
+        if event.token_program_id and event.token_program_id not in supported_token_programs:
+            raise ValueError(f"event row {line_number}: unsupported token_program_id {event.token_program_id!r}")
+        if event.quote_token_program_id and event.quote_token_program_id not in supported_token_programs:
+            raise ValueError(f"event row {line_number}: unsupported quote_token_program_id {event.quote_token_program_id!r}")
         if event.participant_type and event.participant_type not in VALID_ROLES:
             raise ValueError(f"event row {line_number}: unknown participant_type {event.participant_type!r}")
         if event.hop_index is not None and event.hop_index < 0:
@@ -388,6 +423,12 @@ def normalize_events(
     tokens = {event.token_address for event in events}
     quotes = {event.quote_mint for event in events}
     decimals = {(event.token_decimals, event.quote_decimals) for event in events}
+    token_programs = {event.token_program_id for event in events if event.token_program_id}
+    quote_programs = {event.quote_token_program_id for event in events if event.quote_token_program_id}
+    if len(token_programs) > 1:
+        raise ValueError("event stream contains inconsistent token_program_id values")
+    if len(quote_programs) > 1:
+        raise ValueError("event stream contains inconsistent quote_token_program_id values")
     if len(tokens) != 1:
         raise ValueError("event stream contains multiple token_address values; specify token_address")
     if len(quotes) != 1:
@@ -817,6 +858,14 @@ def replay_events(events: Sequence[NormalizedEvent]) -> Dict[str, Any]:
             "reserve_domains_bootstrapped": sorted(bootstrap_domains),
         },
         "event_counts": dict(event_counts),
+        "token_metadata": {
+            "token_program_ids": sorted({event.token_program_id for event in ordered if event.token_program_id}),
+            "quote_token_program_ids": sorted({event.quote_token_program_id for event in ordered if event.quote_token_program_id}),
+            "extension_snapshot_ids": sorted({event.token_extension_snapshot_id for event in ordered if event.token_extension_snapshot_id}),
+            "token_transfer_fee_raw": sum(event.token_transfer_fee_raw for event in ordered),
+            "quote_transfer_fee_raw": sum(event.quote_transfer_fee_raw for event in ordered),
+            "transfer_hook_event_count": sum(event.transfer_hook_invoked is True for event in ordered),
+        },
         "market": {
             "swap_events": len(swap_rows),
             "quote_volume": volume_quote,
