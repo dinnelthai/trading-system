@@ -76,7 +76,7 @@ Cost basis must preserve provenance:
 - Vesting unlock: changes transferability, not beneficial ownership or historical cost basis.
 - Controlled-wallet transfer: changes location only; it does not realize PnL or reset basis.
 
-Realized profit is not equal to gross proceeds. LP principal returned by a withdrawal is not profit. Only actually accrued and claimed LP fees are fee income; changes in the marked value of LP principal are accounted for through the portfolio valuation exactly once.
+Realized profit is not equal to gross proceeds. LP principal returned by a withdrawal is not profit. LP fees retained in pool reserves are already included in the LP claim value and must not be added again as separate income; only separately claimable LP fee balances not included in reserve valuation are added. Creator fees are a separate quote-asset revenue stream and count as Dev treasury income only when the creator/beneficial owner is entitled to them; settled amounts enter treasury cash, while unclaimed amounts are tracked as a separate receivable with settlement risk. Fees routed to charity or holder-rewards recipients are not Dev income.
 
 ## 4. Treasury objective: realizable net value
 
@@ -394,6 +394,147 @@ For each bundle, compute:
 
 Never label a withdrawal as an exit until the resulting Token exposure is actually transferred to an independent beneficial owner or otherwise disposed of under a valid mandate.
 
+### 10.1 Proportional LP withdrawal is an inventory transfer, not an exit
+
+Let Dev own fraction \(\alpha\) of total LP shares and withdraw fraction \(w\) of Dev's own LP shares. Define:
+
+\[
+\lambda=1-w\alpha
+\]
+
+The pool reserves after the withdrawal are:
+
+\[
+X_w=\lambda X,\qquad Y_w=\lambda Y
+\]
+
+Dev's remaining LP ownership fraction becomes:
+
+\[
+\alpha_w=\frac{\alpha(1-w)}{1-w\alpha}
+\]
+
+Dev receives \(w\alpha X\) Token and \(w\alpha Y\) quote asset into its wallet. Its remaining LP claim is \(\alpha(1-w)X\) Token and \(\alpha(1-w)Y\) quote asset. Therefore:
+
+\[
+H'_{Dev}+\alpha_w X_w=H_{Dev}+\alpha X
+\]
+
+\[
+C'_{Dev}+\alpha_w Y_w=C_{Dev}+\alpha Y
+\]
+
+Before fees, transfer costs and external obligations, proportional withdrawal leaves Dev's beneficial Token and quote exposure unchanged. It changes asset location, pool depth and the ownership fractions of the remaining LPs. The simulator must not record the withdrawal itself as a token sale or treasury exit.
+
+For \(\alpha=0.40\) and \(w=0.50\), \(\lambda=0.80\) and \(\alpha_w=0.25\). Dev has removed half of its own LP units; the remaining pool is 80% of its former reserve size, and Dev owns 25% of that remaining pool.
+
+### 10.2 Sell-before-withdraw versus withdraw-before-sell
+
+Compare the same token sale \(q\), the same starting pool \((X,Y)\), and the same proportional withdrawal fraction \(w\). First use a fee-free CPMM to isolate the ownership and depth effect.
+
+**A — Sell first, then withdraw:**
+
+\[
+G_A=\frac{Yq}{X+q}
+\]
+
+Dev's net beneficial Token exposure reduction is:
+
+\[
+R^A_{Token}=(1-\alpha)q
+\]
+
+Dev's net quote exposure increase is:
+
+\[
+R^A_{quote}=(1-\alpha)G_A
+\]
+
+The proportional withdrawal after the swap does not change the post-swap spot price.
+
+**B — Withdraw first, then sell:**
+
+\[
+G_B=\frac{\lambda Yq}{\lambda X+q}
+\]
+
+Dev's net beneficial Token exposure reduction is:
+
+\[
+R^B_{Token}=(1-\alpha_w)q
+=\frac{1-\alpha}{\lambda}q
+\]
+
+Dev's net quote exposure increase is:
+
+\[
+R^B_{quote}=(1-\alpha_w)G_B
+=\frac{(1-\alpha)Yq}{\lambda X+q}
+\]
+
+The post-sale marginal price ratio is:
+
+\[
+\frac{P'_B}{P_0}=
+\left(\frac{\lambda X}{\lambda X+q}\right)^2
+\]
+
+By contrast, selling before withdrawing gives:
+
+\[
+\frac{P'_A}{P_0}=
+\left(\frac{X}{X+q}\right)^2
+\]
+
+Since \(\lambda<1\), the same sale quantity consumes a larger fraction of the remaining pool after withdrawal. It creates more price impact and leaves less executable depth.
+
+**Interpretation:** Withdraw-before-sell can show a larger owner-level quote gain because Dev has reduced its share of the pool before the swap. That is not free alpha or newly created market value. The remaining external LPs bear a larger share of the swap's reserve loss and price impact. The sequence must never be selected solely because it maximizes Dev's cash proceeds.
+
+The orchestrator must enforce post-action depth floors, maximum marginal impact, sell-side executable-depth limits, ownership disclosure and LP/market-quality constraints. A legitimate risk-driven LP withdrawal may still be valid, but it does not grant permission to dump into the thinner pool. If the resulting sale fails quality or authorization gates, the valid action is to withdraw and hold, use a verified independent OTC route, or wait—not to force the AMM sale.
+
+### 10.3 Fee-aware owner-level accounting
+
+For a sell of \(q\) Token, define:
+
+- \(G\): gross quote output along the AMM curve before fees;
+- \(f_{total}\): total trader-side fee rate deducted from gross output;
+- \(f_{LP}\): LP fee amount retained in effective pool reserves, expressed as a fraction of \(G\);
+- \(D_{pool}=G(1-f_{LP})\): quote reserve debit after the LP-retained fee.
+
+The trader receives:
+
+\[
+N=G(1-f_{total})
+\]
+
+If Dev owns fraction \(\alpha\) of the pool LP at the time of sale, its owner-level quote exposure change is:
+
+\[
+\Delta C_{Dev}=N-\alpha D_{pool}
+=G[(1-f_{total})-\alpha(1-f_{LP})]
+\]
+
+This formula separates the seller's actual proceeds from the loss in Dev's own LP claim. It must use the fee split and effective-reserve semantics for the exact protocol version and transaction route. Creator/protocol fees paid out of the pool are not LP-retained reserve value.
+
+For the current simplified simulator, \(f_{total}=f\) and \(f_{LP}=f\ell\), where \(\ell\) is the configured LP share. The full Pump.fun canonical fee model additionally needs separate creator, protocol and LP fee components and the active market-cap tier. Any creator fee entitlement must be tracked as a separate quote-asset receivable/cash flow, not added to pool reserves. LP fees already retained in reserves must not also be added as a second income item.
+
+### 10.4 Numerical comparison
+
+For an idealized fee-free example with \(X=1{,}000{,}000\) Token, \(Y=1{,}000\) SOL, \(\alpha=0.40\), \(w=0.50\), and \(q=100{,}000\) Token:
+
+| Metric | Sell then withdraw | Withdraw then sell |
+|---|---:|---:|
+| Pool size at sale | 100% | 80% |
+| Dev LP share at sale | 40% | 25% |
+| Gross AMM quote output | 90.91 SOL | 88.89 SOL |
+| Dev net quote exposure increase | 54.55 SOL | 66.67 SOL |
+| Dev net Token exposure reduction | 60,000 | 75,000 |
+| Post-sale marginal price decline | 17.36% | 20.99% |
+
+The second sequence appears better for Dev's immediate owner-level cash result, but it imposes a larger price decline and leaves 20% less pool depth before the sale. The extra 12.12 SOL is a redistribution of value/risk through a more damaging trade against the remaining LPs, not a free increase in system-wide value. The market-quality gate must take precedence over that private cash metric.
+
+The example is an analytical invariant test, not a recommended trading tactic. Actual PumpSwap execution must include fee tiers, creator/protocol/LP fee destinations, raw and effective quote reserves, transaction ordering, slippage and protocol-version semantics.
+
 ## 11. Disclosure, ownership and market-integrity controls
 
 Every treasury exit policy must define:
@@ -490,17 +631,20 @@ The Dev Treasury & Exit Engine is not accepted until:
 
 ## 15. Open research and implementation order
 
-1. Extend the canonical state contract with beneficial-owner treasury inventory, cost basis, vesting and route capacity.
-2. Validate Pump curve and PumpSwap treasury sell transitions against protocol-specific fee and reserve mechanics.
-3. Implement the LP-ownership-aware net-exit accounting identity and test it against simulated swaps.
-4. Add a route-aware sale capacity model for AMM and independent OTC execution.
-5. Define the treasury reserve/obligation mandate and the risk-adjusted continuation-value model.
-6. Implement the Dev Treasury & Exit Engine as a proposal generator.
-7. Integrate it with Orchestrator hard gates and joint LP/exit action bundles.
-8. Run matched-seed policy experiments, historical replay and held-out validation.
-9. Keep adaptive exit in research/paper mode until all accounting, authorization, integrity and execution gates pass.
+1. Extend the canonical state contract with beneficial-owner treasury inventory, cost basis, vesting, creator-fee receivables and route capacity.
+2. Validate Pump curve and PumpSwap treasury sell transitions against protocol-specific fee and reserve mechanics, including separate creator, protocol and LP fee flows.
+3. Validate sell-side fee retention in the simulator and pool-depth analytics; explicit reserve-delta regression tests now cover the simplified two-component model.
+4. Add and validate partial LP withdrawal semantics and pro-rata LP cost-basis release.
+5. Compare sell-before-remove and remove-before-sell under market-quality constraints, not private proceeds alone.
+6. Implement the LP-ownership-aware net-exit accounting identity and test it against simulated swaps.
+7. Add a route-aware sale capacity model for AMM and independent OTC execution.
+8. Define the treasury reserve/obligation mandate and the risk-adjusted continuation-value model.
+9. Implement the Dev Treasury & Exit Engine as a proposal generator.
+10. Integrate it with Orchestrator hard gates and joint LP/exit action bundles.
+11. Run matched-seed policy experiments, historical replay and held-out validation.
+12. Keep adaptive exit in research/paper mode until all accounting, authorization, integrity and execution gates pass.
 
-**Current implementation note:** The simulator currently has configurable vesting and a fixed dev_treasury_sale_fraction baseline. The adaptive optimal-stopping engine, beneficial-owner exit ledger and route-aware treasury optimizer specified here are not yet implemented.
+**Current implementation note:** The simulator now supports fractional LP withdrawal (REMOVE_LP amount is the fraction of the account's LP shares; zero preserves full withdrawal), pro-rata LP cost-basis release, and sell-side LP-fee retention in the simplified CPMM. The model remains a two-component LP/protocol fee abstraction and does not yet implement Pump's dynamic creator/protocol/LP fee tiers. The adaptive optimal-stopping engine, beneficial-owner exit ledger and route-aware treasury optimizer specified here are not yet implemented.
 
 No live execution is authorized by this document.
 
