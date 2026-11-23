@@ -20,7 +20,20 @@ Official references:
 
 If the provider cannot serve the requested finalized historical slots, record the failure in the block manifest. Do not silently skip missing ranges.
 
-## 2. Export a slot range
+## 2. Probe a mint before exporting its lifecycle
+
+Set `SOLANA_RPC_URL`, install the project, and run:
+
+    solana-token-probe \
+      --mint TOKEN_MINT \
+      --quote-mint So11111111111111111111111111111111111111112 \
+      --out data/mint_probe.json
+
+This records the mint owner program, decimals, raw supply, Token-2022 TLV extension IDs/payload hashes, quote-mint metadata, and the address-indexed signature history. The signature index provides candidate first/last slots; it is newest-first and is not the canonical transaction order or a completeness proof. The mint account snapshot records the RPC context slot and raw-data hash.
+
+If the signature history reaches `--max-pages`, `history_complete` is false. Increase the page cap and repeat. After the candidate slot range is known, export every block in that range without an address filter.
+
+## 3. Export a slot range
 
 Set the archive RPC endpoint in an environment variable so credentials do not enter shell history or source control:
 
@@ -42,7 +55,7 @@ Failed transactions are retained and marked failed. They must not mutate the rep
 
 A null block result is recorded as skipped_or_unavailable. RPC failures are recorded as rpc_error. The exporter does not invent a block timestamp when blockTime is null.
 
-## 3. Optional coarse address filter
+## 4. Optional coarse address filter
 
 For a small discovery export, the exporter can retain transactions whose raw JSON contains a supplied address:
 
@@ -54,7 +67,7 @@ For a small discovery export, the exporter can retain transactions whose raw JSO
 
 This is only a coarse filter. It is explicitly marked as not being a completeness proof. A transaction related to a token may reference a pool, token account, vault, or intermediate quote mint without containing the base mint in the exact serialized section being screened. Use an unfiltered slot archive or a separately verified address/signature inventory for final completeness.
 
-## 4. Version-aware Pump decoder requirements
+## 5. Version-aware Pump decoder requirements
 
 The protocol decoder must identify the program ID and instruction variant for every event. Current official public documentation lists:
 
@@ -72,7 +85,7 @@ Decode the relevant legacy and versioned instruction/event families, including:
 
 The Pump IDL and PumpSwap IDL are versioned inputs to the decoder. Store the exact IDL commit/version used for each decoded range. A latest IDL must not be assumed to describe all historical transactions.
 
-## 5. Account and instruction decoding
+## 6. Account and instruction decoding
 
 For raw JSON transactions, resolve account indices against static account keys plus loaded addresses. Decode top-level instructions and inner CPI instructions separately. Preserve:
 - outer instruction index;
@@ -85,7 +98,9 @@ For raw JSON transactions, resolve account indices against static account keys p
 
 Use raw integer amounts. Avoid uiAmount floating point fields for reserve reconciliation.
 
-## 6. Data quality gate before paid history or calibration
+For Token-2022, preserve the token program owner, mint extension TLV data, and token-account extension data. Decode TransferCheckedWithFee / transfer-fee withheld amounts and any transfer-hook CPI from the actual transaction. The presence of Token-2022 alone does not prove that any particular extension is enabled.
+
+## 7. Data quality gate before paid history or calibration
 
 Before purchasing a large archive export, test a narrow range covering:
 1. a token creation transaction;
@@ -105,7 +120,7 @@ Verify that the provider returns:
 
 Do not proceed to parameter fitting if the provider only supplies decoded trade rows but omits LP events, reserve states, or same-slot ordering.
 
-## 7. Privacy and operations
+## 8. Privacy and operations
 
 - Keep RPC credentials in environment variables; never commit endpoint URLs containing API keys.
 - Keep raw archives immutable. Write decoded normalized events to a separate versioned file.
