@@ -1082,10 +1082,34 @@ class SimulationEngine:
     def _schedule(self, agent: Agent, action: Action, now: float) -> None:
         delay = agent.rng.expovariate(1.0 / max(agent.traits.latency_mean_s, 0.02))
         arrival = now + delay
+        action.arrival_time = arrival
+        if action.kind in ("buy", "sell"):
+            if action.kind == "buy":
+                input_amount = min(action.amount, agent.account.quote)
+                quoted_out = self.market.preview_buy(input_amount)
+            else:
+                input_amount = min(action.amount, agent.account.tokens)
+                quoted_out = self.market.preview_sell(input_amount)
+            tolerance_bps = max(
+                agent.traits.slippage_tolerance_bps,
+                self.config.default_slippage_tolerance_bps,
+            )
+            action.quoted_amount_out = quoted_out
+            action.min_amount_out = quoted_out * (1.0 - tolerance_bps / 10_000.0)
+        if action.kind in ("buy", "sell", "arb_buy_local", "arb_sell_local"):
+            self.orders_submitted += 1
         block_time = math.ceil(arrival / self.config.block_interval_s) * self.config.block_interval_s
         priority = agent.rng.random()
         self.sequence += 1
         heapq.heappush(self.order_queue, (block_time, -priority, self.sequence, agent, action))
+
+    def _record_order_execution(self, action: Action, timestamp: float) -> None:
+        self.orders_executed += 1
+        if action.arrival_time is not None:
+            latency = max(0.0, timestamp - action.arrival_time)
+            self.order_latency_sum_s += latency
+            self.order_latency_max_s = max(self.order_latency_max_s, latency)
+            self.order_latency_count += 1
 
     def _schedule_activation(self, agent: Agent, now: float) -> None:
         rate = max(agent.traits.activity_rate, 1e-9)
@@ -1160,6 +1184,8 @@ class SimulationEngine:
         self._migration_handled = True
 
     def _execute(self, agent: Agent, action: Action, timestamp: float) -> None:
+        spot_price_before = self.market.price
+        tracked_trade: Optional[Trade] = None
         if action.kind == "post":
             self.attention = min(20.0, self.attention + action.attention_delta)
             self.sentiment = max(-1.0, min(1.0, self.sentiment + action.sentiment_delta))
@@ -1216,8 +1242,10 @@ class SimulationEngine:
                     agent.account.fees_paid += execution.fee + external_fee
                     self.total_external_fees_quote += external_fee
                     trade_price = execution.amount_in / execution.amount_out
-                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
-                                              execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0))
+                    tracked_trade = Trade(timestamp, agent.agent_id, agent.kind, "arb_buy_local", self.market.phase.value,
+                                          execution.amount_out, execution.amount_in, trade_price, execution.fee, 0.0)
+                    self._record_trade(tracked_trade)
+                    self._record_order_execution(action, timestamp)
         elif action.kind == "arb_sell_local":
             quote_budget = min(action.amount, agent.account.quote * 0.5, self.config.external_depth_quote * 0.20)
             external_fee_rate = self.config.external_fee_bps / 10_000.0
@@ -1237,16 +1265,25 @@ class SimulationEngine:
                     self.total_external_fees_quote += external_fee_paid
                     gross_quote = execution.amount_out + execution.fee
                     trade_price = gross_quote / execution.amount_in
-                    self._record_trade(Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
-                                              execution.amount_in, gross_quote, trade_price, execution.fee, 0.0))
+                    tracked_trade = Trade(timestamp, agent.agent_id, agent.kind, "arb_sell_local", self.market.phase.value,
+                                          execution.amount_in, gross_quote, trade_price, execution.fee, 0.0)
+                    self._record_trade(tracked_trade)
+                    self._record_order_execution(action, timestamp)
         elif action.kind == "buy":
             quote_in = min(action.amount, agent.account.quote)
             if quote_in <= EPS:
                 return
-            depth = self.market.depth_quote
+            expected_out = self.market.preview_buy(quote_in)
+            if action.min_amount_out is not None and expected_out + EPS < action.min_amount_out:
+                self.slippage_reverts += 1
+                self.orders_failed += 1
+                return
+            depth = self.market.depth_quote_for_side("buy")
             mev_cost = self._mev_exposure(quote_in, depth)
+            trade_phase = self.market.phase.value
             execution = self.market.buy(quote_in)
             if execution.amount_out <= EPS:
+                self.orders_failed += 1
                 return
             agent.account.quote -= execution.amount_in
             old_tokens = agent.account.tokens
@@ -1259,17 +1296,30 @@ class SimulationEngine:
                 agent.account.avg_entry_price = (old_cost + execution.amount_in) / (old_tokens + execution.amount_out)
             agent.account.fees_paid += execution.fee
             price = execution.amount_in / execution.amount_out
-            trade = Trade(timestamp, agent.agent_id, agent.kind, "buy", self.market.phase.value,
-                          execution.amount_out, execution.amount_in, price, execution.fee, mev_cost)
-            self._record_trade(trade)
+            tracked_trade = Trade(
+                timestamp, agent.agent_id, agent.kind, "buy", trade_phase,
+                execution.amount_out, execution.amount_in, price, execution.fee, mev_cost,
+                curve_quote_amount=execution.curve_gross_quote_in or execution.amount_in,
+                synthetic_pool_quote_amount=execution.synthetic_pool_gross_quote_in,
+                synthetic_pool_token_amount=execution.synthetic_pool_token_out,
+            )
+            self._record_trade(tracked_trade)
+            self._record_order_execution(action, timestamp)
         elif action.kind == "sell":
             token_in = min(action.amount, agent.account.tokens)
             if token_in <= EPS:
                 return
-            depth = self.market.depth_quote
+            expected_out = self.market.preview_sell(token_in)
+            if action.min_amount_out is not None and expected_out + EPS < action.min_amount_out:
+                self.slippage_reverts += 1
+                self.orders_failed += 1
+                return
+            depth = self.market.depth_quote_for_side("sell")
             mev_cost = self._mev_exposure(token_in * self.market.price, depth)
+            trade_phase = self.market.phase.value
             execution = self.market.sell(token_in)
             if execution.amount_in <= EPS or execution.amount_out <= EPS:
+                self.orders_failed += 1
                 return
             agent.account.tokens -= execution.amount_in
             agent.account.quote += execution.amount_out
@@ -1280,12 +1330,22 @@ class SimulationEngine:
             agent.account.fees_paid += execution.fee
             gross_quote = execution.amount_out + execution.fee
             price = gross_quote / execution.amount_in
-            trade = Trade(timestamp, agent.agent_id, agent.kind, "sell", self.market.phase.value,
-                          execution.amount_in, gross_quote, price, execution.fee, mev_cost)
-            self._record_trade(trade)
+            tracked_trade = Trade(
+                timestamp, agent.agent_id, agent.kind, "sell", trade_phase,
+                execution.amount_in, gross_quote, price, execution.fee, mev_cost,
+                curve_quote_amount=gross_quote if trade_phase == Phase.CURVE.value else 0.0,
+            )
+            self._record_trade(tracked_trade)
+            self._record_order_execution(action, timestamp)
 
         if self.market.maybe_migrate(timestamp):
             self._handle_migration()
+        if tracked_trade is not None:
+            tracked_trade.spot_price_before = spot_price_before
+            tracked_trade.spot_price_after = self.market.price
+            tracked_trade.price_impact_bps = (
+                tracked_trade.spot_price_after / max(spot_price_before, EPS) - 1.0
+            ) * 10_000.0
 
     def run(self) -> Dict[str, object]:
         steps = int(math.ceil(self.config.duration_s / self.config.step_s))
