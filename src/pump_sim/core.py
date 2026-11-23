@@ -168,6 +168,7 @@ class Snapshot:
     timestamp: float
     phase: Phase
     pool_age_s: float
+    project_quality: float
     price: float
     reference_price: float
     momentum: float
@@ -359,6 +360,7 @@ class Agent:
             self.traits.momentum_sensitivity * s.momentum * 8.0
             + self.traits.social_sensitivity * social * 0.35
             + 0.65 * s.sentiment
+            + 0.40 * (s.project_quality - 0.5)
             - self.traits.risk_aversion * s.volatility * 3.0
             - self.traits.dev_overhang_sensitivity * overhang
             + noise
@@ -367,13 +369,13 @@ class Agent:
     def decide(self, s: Snapshot) -> Optional[Action]:
         if self.kind == "kol":
             if self.rng.random() < 0.28:
-                stance = max(-1.0, min(1.0, 0.35 * s.sentiment + 3.0 * s.momentum + self.rng.gauss(0, 0.45)))
+                stance = max(-1.0, min(1.0, 0.35 * s.sentiment + 3.0 * s.momentum + 0.5 * (s.project_quality - 0.5) + self.rng.gauss(0, 0.45)))
                 impact = self.credibility * stance * self.rng.uniform(0.015, 0.07)
                 return Action("post", sentiment_delta=impact, attention_delta=self.rng.uniform(0.08, 0.35) * self.credibility)
             return None
 
         if self.kind == "dev":
-            if s.phase == Phase.POOL and self.account.lp_shares > EPS and s.volatility > 0.045 * self.traits.loss_aversion:
+            if s.phase == Phase.POOL and self.account.lp_shares > EPS and s.volatility > 0.006 * self.traits.loss_aversion:
                 if self.rng.random() < 0.25:
                     return Action("remove_lp")
             return None
@@ -408,7 +410,7 @@ class Agent:
                 inventory_risk = s.volatility * self.traits.risk_aversion
                 if fee_yield_proxy > inventory_risk * 0.08:
                     return Action("add_lp")
-            if s.phase == Phase.POOL and self.account.lp_shares > EPS and s.volatility > 0.035 * self.traits.loss_aversion:
+            if s.phase == Phase.POOL and self.account.lp_shares > EPS and s.volatility > 0.006 * self.traits.loss_aversion:
                 return Action("remove_lp")
             return None
 
@@ -594,7 +596,7 @@ class SimulationEngine:
         recent_volume = sum(t.quote_amount for t in self.trades if timestamp - 60 <= t.timestamp <= timestamp)
         pool_age = max(0.0, timestamp - self.market.graduated_at) if self.market.graduated_at is not None else 0.0
         return Snapshot(
-            timestamp, self.market.phase, pool_age, price, self.reference_price, momentum, volatility,
+            timestamp, self.market.phase, pool_age, self.project_quality, price, self.reference_price, momentum, volatility,
             self.attention, self.sentiment, self.config.dev_allocation / self.config.total_supply,
             dev_float, self.config.dev_locked_fraction, top_holder, progress,
             self.market.depth_quote, recent_volume,
@@ -832,6 +834,8 @@ class SimulationEngine:
             "attention": self.attention,
             "sentiment": self.sentiment,
             "dev_supply_share": self.config.dev_allocation / self.config.total_supply,
+            "dev_float_share": self._snapshot(self.config.duration_s).dev_float_share,
+            "top_holder_share": self._snapshot(self.config.duration_s).top_holder_share,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
             "dev_total_token_exposure": (self.dev.account.tokens + (self.market.pool.token_reserve * self.dev.account.lp_shares / max(self.market.pool.total_lp_shares, EPS) if self.dev and self.market.pool else 0.0)) if self.dev else 0.0,
             "dev_locked_tokens": self.config.dev_allocation * self.config.dev_locked_fraction,
