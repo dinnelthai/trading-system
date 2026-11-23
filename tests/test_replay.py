@@ -30,6 +30,8 @@ def event(
     owner="",
     position="",
     actor="",
+    route_id="",
+    hop_index=None,
     quote_vault_before=None,
     quote_vault_after=None,
     virtual_quote_before=None,
@@ -58,6 +60,8 @@ def event(
         "owner_wallet": owner,
         "position_id": position,
         "participant_type": "",
+        "route_id": route_id,
+        "hop_index": hop_index,
         "side": side,
         "token_amount_raw": token_amount_raw,
         "quote_amount_raw": quote_amount_raw,
@@ -496,3 +500,46 @@ def test_replay_checks_quote_vault_and_virtual_components_even_when_effective_re
     kinds = {item["kind"] for item in report["reserve_continuity"]["mismatches"]}
     assert "pool_quote_vault_continuity" in kinds
     assert "pool_virtual_quote_reserve_continuity" in kinds
+
+
+def test_replay_retains_multi_hop_route_identity_without_merging_the_hops():
+    hop = event(
+        "route-hop-0",
+        "pool_swap",
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=100,
+        quote_before=100,
+        base_after=90,
+        quote_after=110,
+        actor="route-trader",
+        route_id="route-123",
+        hop_index=0,
+    )
+    report = replay_events(normalize_events([hop]))
+    assert report["multi_hop_route_count"] == 1
+    assert report["multi_hop_hop_count"] == 1
+
+
+def test_virtual_quote_reserve_must_fit_signed_i128():
+    invalid = event(
+        "virtual-overflow",
+        "pool_swap",
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=100,
+        quote_before=100,
+        base_after=90,
+        quote_after=110,
+        actor="wallet-a",
+        quote_vault_before=100,
+        virtual_quote_before=-(2**127) - 1,
+        quote_vault_after=110,
+        virtual_quote_after=0,
+    )
+    with pytest.raises(ValueError, match="virtual quote reserve exceeds i128"):
+        normalize_events([invalid])
