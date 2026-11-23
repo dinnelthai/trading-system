@@ -242,6 +242,8 @@ def test_monte_carlo_reports_distribution_not_only_one_path():
     assert "p10" in result["metrics"]["max_drawdown"]
     assert "graduation_time_s" in result["metrics"]
     assert "retail" in result["participant_metrics"]
+    assert "curve_net_quote_flow" in result["metrics"]
+    assert "token_supply_accounting_error_fraction" in result["metrics"]
     assert result["seed_end"] == 12
     assert 0 <= result["metrics"]["wallet_holder_hhi"]["mean"] <= 1
     assert result["metrics"]["top_5_holders_share"]["mean"] >= result["metrics"]["top_holder_share_including_dev"]["mean"]
