@@ -653,7 +653,7 @@ A research result is not accepted because one chart looks better. It must:
 
 ## 12. Detailed decision and control specifications
 
-The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md). Treasury exit mathematics and beneficial-owner accounting are maintained in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md).
+The implementation-facing specification for proposal contracts, action compatibility, hard-gate hierarchy, risk arbitration, value of information, conflict resolution, multi-timescale authority, cooldown, audit records and simulator acceptance tests is maintained in [Market Making Decision Orchestrator](DECISION_ORCHESTRATOR.md). Treasury exit mathematics and beneficial-owner accounting are maintained in [Dev Treasury & Exit Intelligence](DEV_TREASURY_EXIT.md). Dynamic LP-versus-Treasury allocation, LP Delta/Gamma, fee-turnover/LVR screening and Creator Fee separation are specified in [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
 
 This parent document defines product direction and system boundaries. The dedicated orchestrator document owns the normative decision rules so that the two documents do not drift.
 
@@ -661,7 +661,7 @@ This parent document defines product direction and system boundaries. The dedica
 
 1. Validate exact PumpSwap proportional LP add/remove accounting against the deployed program semantics.
 2. Implement the canonical state and action-transition contract in the simulator.
-3. Derive inventory conversion and capital allocation under correlated flow and tail-risk scenarios.
+3. Calibrate and implement the LP-versus-Treasury allocator, including inventory conversion, fee/LVR economics, genuine-volume elasticity and tail-risk constraints; see [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
 4. Derive and implement Dev Treasury & Exit Intelligence, including beneficial-owner aggregation and optimal-stopping policy.
 5. Implement the decision orchestrator and multi-timescale state machine.
 6. Run historical replay, matched-seed simulation and paper validation before any live authorization.
