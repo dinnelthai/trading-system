@@ -1611,8 +1611,9 @@ class SimulationEngine:
         )
         observed_bars = self.observed_candles.bars()
         true_bars = self.true_candles.bars()
-        observed_volume = sum(c.volume_quote for c in observed_bars)
-        true_volume = sum(c.volume_quote for c in true_bars)
+        candle_metrics = candle_comparison_metrics(true_bars, observed_bars)
+        observed_volume = candle_metrics["observed_volume_quote"]
+        true_volume = candle_metrics["true_volume_quote"]
         market_token_inventory = self.market.curve.token_account_balance if self.market.pool is None else self.market.pool.token_reserve
         agent_token_inventory = math.fsum(a.account.tokens for a in self.agents)
         accounted_supply = math.fsum((agent_token_inventory, market_token_inventory, self.market.external_token_reserve, self.market.locked_supply))
@@ -1660,14 +1661,31 @@ class SimulationEngine:
         synthetic_migration_token_volume = math.fsum(
             trade.synthetic_pool_token_amount for trade in synthetic_migration_trades
         )
-        true_by_start = {bar.start: bar for bar in true_bars}
-        observed_by_start = {bar.start: bar for bar in observed_bars}
-        matched_starts = sorted(set(true_by_start) & set(observed_by_start))
-        close_errors_bps = [abs(observed_by_start[k].close / max(true_by_start[k].close, EPS) - 1.0) * 10_000.0 for k in matched_starts]
-        ohlc_mismatches = sum(
-            1 for k in matched_starts
-            if any(abs(getattr(observed_by_start[k], field) - getattr(true_by_start[k], field)) > EPS for field in ("open", "high", "low", "close"))
+        pool = self.market.pool
+        pool_depth_metrics = (
+            pool_depth_by_price_impact(
+                pool.token_reserve,
+                pool.quote_reserve,
+                self.config.pool_fee_bps,
+                self.config.pool_lp_fee_share,
+            )
+            if pool is not None else {}
         )
+        lp_owner_shares = {
+            agent.agent_id: agent.account.lp_shares
+            for agent in self.agents if agent.account.lp_shares > EPS
+        }
+        lp_metrics = lp_ownership_metrics(
+            pool.total_lp_shares if pool else 0.0,
+            self.market.initial_lp_locked_shares if pool else 0.0,
+            lp_owner_shares,
+        )
+        pool_execution_slippage = [abs(trade.execution_slippage_bps) for trade in pool_trades]
+        pool_marginal_impacts = [abs(trade.price_impact_bps) for trade in pool_trades]
+        pool_token_reserve = pool.token_reserve if pool else 0.0
+        pool_quote_reserve = pool.quote_reserve if pool else 0.0
+        pool_spot_price = pool.price if pool else 0.0
+        pool_tvl_quote = 2.0 * pool_quote_reserve
         return {
             "seed": self.config.seed,
             "phase": self.market.phase.value,
@@ -1727,13 +1745,7 @@ class SimulationEngine:
             "pool_buy_volume_quote": pool_flow["buy_volume_quote"],
             "pool_sell_volume_quote": pool_flow["sell_volume_quote"],
             "pool_net_quote_flow": pool_flow["net_quote_flow"],
-            "true_volume_quote": true_volume,
-            "observed_volume_quote": observed_volume,
-            "observed_to_true_volume_ratio": observed_volume / max(true_volume, EPS),
-            "candle_close_mae_bps": statistics_mean(close_errors_bps),
-            "candle_close_max_error_bps": max(close_errors_bps, default=0.0),
-            "candle_ohlc_mismatch_bars": ohlc_mismatches,
-            "candle_unmatched_bars": len(set(true_by_start) ^ set(observed_by_start)),
+            **candle_metrics,
             "fees_quote": self.total_fees_quote,
             "external_fees_quote": self.total_external_fees_quote,
             "total_fees_including_external_quote": self.total_fees_quote + self.total_external_fees_quote,
@@ -1761,8 +1773,36 @@ class SimulationEngine:
             "dev_locked_tokens": self.dev_locked_balance,
             "dev_vested_tokens": self.dev_initial_locked_balance - self.dev_locked_balance,
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
-            "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
-            "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
+            "pool_token_reserve": pool_token_reserve,
+            "pool_quote_reserve": pool_quote_reserve,
+            "pool_spot_price": pool_spot_price,
+            "pool_market_fdv_quote": pool_spot_price * self.config.total_supply,
+            "pool_k": pool_token_reserve * pool_quote_reserve,
+            "pool_tvl_quote": pool_tvl_quote,
+            "pool_token_reserve_value_quote": pool_token_reserve * pool_spot_price,
+            "pool_buy_depth_1pct_quote": pool_depth_metrics.get("1pct", {}).get("buy_gross_quote_in", 0.0),
+            "pool_sell_depth_1pct_quote": pool_depth_metrics.get("1pct", {}).get("sell_net_quote_out", 0.0),
+            "pool_buy_depth_5pct_quote": pool_depth_metrics.get("5pct", {}).get("buy_gross_quote_in", 0.0),
+            "pool_sell_depth_5pct_quote": pool_depth_metrics.get("5pct", {}).get("sell_net_quote_out", 0.0),
+            "pool_buy_depth_10pct_quote": pool_depth_metrics.get("10pct", {}).get("buy_gross_quote_in", 0.0),
+            "pool_sell_depth_10pct_quote": pool_depth_metrics.get("10pct", {}).get("sell_net_quote_out", 0.0),
+            "pool_depth_by_impact": pool_depth_metrics,
+            "pool_liquidity_added_token": self.pool_liquidity_added_token,
+            "pool_liquidity_added_quote": self.pool_liquidity_added_quote,
+            "pool_liquidity_removed_token": self.pool_liquidity_removed_token,
+            "pool_liquidity_removed_quote": self.pool_liquidity_removed_quote,
+            "pool_net_liquidity_added_token": self.pool_liquidity_added_token - self.pool_liquidity_removed_token,
+            "pool_net_liquidity_added_quote": self.pool_liquidity_added_quote - self.pool_liquidity_removed_quote,
+            "pool_state_event_counts": dict(self.pool_event_counts),
+            "pool_swap_event_count": self.pool_swap_count,
+            "pool_swap_mean_abs_price_impact_bps": self.pool_swap_price_impact_abs_sum_bps / max(self.pool_swap_count, 1),
+            "pool_swap_max_abs_price_impact_bps": self.pool_swap_price_impact_max_bps,
+            "pool_trade_mean_execution_slippage_bps": statistics_mean(pool_execution_slippage),
+            "pool_trade_max_execution_slippage_bps": max(pool_execution_slippage, default=0.0),
+            "pool_trade_mean_marginal_price_impact_bps": statistics_mean(pool_marginal_impacts),
+            "pool_trade_max_marginal_price_impact_bps": max(pool_marginal_impacts, default=0.0),
+            **lp_metrics,
+            **({"pool_event_trace": self.pool_state_events} if self.config.record_pool_event_trace else {}),
             "external_token_reserve": self.market.external_token_reserve,
             "external_quote_reserve": self.market.external_quote_reserve,
             "initial_lp_locked_shares": self.market.initial_lp_locked_shares,
