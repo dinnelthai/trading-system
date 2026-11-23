@@ -30,7 +30,7 @@ Optional columns:
 | \`venue\` | Source venue / pool identifier |
 | \`signature\` | Transaction signature for traceability |
 
-Do not combine different quote assets or different token mints in one calibration sample. If a file includes multiple token addresses, pass \`--token-address\`.
+If `fee_quote` is provided, `quote_amount` must be gross quote notional before fees so fee-bps estimates are comparable. Do not combine different quote assets or different token mints in one calibration sample. If a file includes multiple token addresses, pass \`--token-address\`.
 
 ## Run calibration
 
