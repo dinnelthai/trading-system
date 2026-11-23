@@ -89,6 +89,16 @@ def test_candle_builder_only_records_supplied_executions():
     assert candles.bars()[0].high == 0.000002
 
 
+def test_token_supply_is_conserved_across_curve_pool_and_external_venue():
+    config = SimConfig(seed=19, duration_s=600)
+    engine = SimulationEngine(config)
+    engine.run()
+    market_inventory = engine.market.curve.real_tokens if engine.market.pool is None else engine.market.pool.token_reserve
+    agent_inventory = sum(a.account.tokens for a in engine.agents)
+    total = agent_inventory + market_inventory + engine.market.external_token_reserve + engine.market.locked_supply
+    assert math.isclose(total, config.total_supply, rel_tol=1e-9, abs_tol=1e-3)
+
+
 def test_monte_carlo_reports_distribution_not_only_one_path():
     result = run_monte_carlo(SimConfig(seed=10, duration_s=60), runs=3)
     assert result["runs"] == 3
