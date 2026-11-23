@@ -97,9 +97,11 @@ def calibrate_swap_rows(
     for line_number, raw in enumerate(rows, start=2):
         row = dict(raw)
         address = (row.get("token_address") or "").strip()
+        if token_address and not address:
+            raise ValueError("token_address filtering requires a populated token_address column")
         if address:
             seen_tokens.add(address)
-        if token_address and address and address != token_address:
+        if token_address and address != token_address:
             continue
         missing = [name for name in REQUIRED_COLUMNS if name not in row or not str(row.get(name, "")).strip()]
         if missing:
@@ -121,6 +123,8 @@ def calibrate_swap_rows(
         if role and role not in VALID_ROLES:
             raise ValueError(f"CSV row {line_number} has unknown participant_type {role!r}")
         fee_quote = _number(row, "fee_quote")
+        if fee_quote is not None and fee_quote < 0:
+            raise ValueError(f"CSV row {line_number} fee_quote must be nonnegative")
         trades.append({
             "timestamp": timestamp,
             "wallet": wallet,
@@ -265,7 +269,7 @@ def calibrate_swap_rows(
             "token_volume": sum(token_sizes),
             "buy_quote_volume": buy_quote,
             "sell_quote_volume": sell_quote,
-            "buy_sell_quote_ratio": buy_quote / max(sell_quote, 1e-12),
+            "buy_sell_quote_ratio": buy_quote / sell_quote if sell_quote > 0 else None,
             "trades_per_minute": len(trades) / max(duration / 60.0, 1.0 / 60.0),
             "quote_order_size": _distribution(quote_sizes),
             "token_order_size": _distribution(token_sizes),
