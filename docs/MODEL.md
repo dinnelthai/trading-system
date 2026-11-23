@@ -175,3 +175,5 @@ Before interpreting outputs empirically:
 5. run many independent seeds and report distributions, not a single path.
 
 A seeded run is reproducible, not a forecast. The model is for research and risk analysis, not investment advice.
+
+The simulator's current market-quality coverage is partial. The R08–R19 target metric contract is defined in [Market Quality Metrics](MARKET_QUALITY_METRICS.md). In particular, current external reference and participant behavior remain synthetic until calibrated; multi-venue discretionary route choice, independent beneficial-owner attribution, resilience markouts and matched fairness metrics must not be presented as implemented until their adapters and tests exist.
