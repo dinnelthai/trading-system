@@ -84,6 +84,7 @@ def test_dev_locked_fraction_splits_ownership_from_immediately_sellable_supply()
     assert metrics["dev_direct_ownership_share"] == pytest.approx(0.20)
     assert metrics["dev_unlocked_supply_share"] == pytest.approx(0.05)
     assert metrics["dev_locked_supply_share"] == pytest.approx(0.15)
+    assert metrics["dev_lp_token_claim"] == pytest.approx(0)
     assert metrics["dev_unlocked_share_of_circulating_supply"] == pytest.approx(50 / 850)
     assert metrics["dev_share_of_wallet_free_float"] == pytest.approx(0.10)
 
