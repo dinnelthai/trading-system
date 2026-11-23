@@ -40,6 +40,11 @@ Run 100+ independent seeds with the default synthetic configuration. Record:
 19. **LP fee/LVR threshold:** sweep daily volatility from 10% to 50%, LP Fee from 0.020% to 0.250%, and genuine daily turnover from 0.25x to 200x TVL. Compare the analytical one-eighth variance baseline with event-driven replay including jumps, latency and concentrated flow.
 20. **Depth elasticity:** estimate the causal response of genuine eligible volume to pool TVL using matched cohorts and held-out launches. Compare (epsilon_V=0) with calibrated elasticity; do not treat correlation between TVL and volume as causation.
 
+21. **Fixed-intent depth replay:** replay an identical external order-intent tape across proportional depth variants (0.50x, 0.75x, 1.00x, 1.25x, 1.50x, 2.00x). Keep opening spot, supply, fee tier, external reference path, competing venue state and participant budgets fixed. Measure execution cost, route share, fill rate and successful genuine pool volume.
+22. **Adaptive route-choice response:** add heterogeneous trader venue choice among the local pool, a finite-depth competing venue and no-trade. Vary route-cost sensitivity, order-size response and slippage-tolerance distributions. Compare against fixed-intent results on matched seeds.
+23. **Flow composition elasticity:** report organic, arbitrage and informed-flow volume elasticity separately. Test cases where local pool capacity, external venue depth or arbitrage capital is the binding constraint.
+24. **Demand-versus-capture decomposition:** vary attention/KOL/regime shocks separately from pool depth. Confirm that changes in external intent arrivals are not misattributed to depth elasticity.
+
 ## Stress scenarios
 
 Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve relationships when changing curve parameters; do not tune graduation by changing a quote threshold because Pump completion is based on real-token exhaustion:
@@ -54,6 +59,7 @@ Use stochastic shocks rather than fixed price scripts. Preserve protocol reserve
 
 - Report LP-versus-Treasury marginal allocation value, fee/LVR surplus, volume elasticity and Delta/Gamma exposure.
 - Report LP Fee accrual through reserve value separately from Creator Fee accrued, swept, claimed and distributed.
+- Report intent, route selection, submission, settlement and failure separately; include route share and fill elasticity by participant class and flow type.
 
 - Use at least 100 seeds for exploratory distributions and 500+ for more stable tail estimates.
 - Report mean, median, p10, p90, and graduation rate.
