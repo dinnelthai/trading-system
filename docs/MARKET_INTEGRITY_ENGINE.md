@@ -33,7 +33,7 @@ These can occur for legitimate reasons such as custodians, relayers, exchanges, 
 2. **Verified related-owner turnover** — reports large two-way turnover across wallets joined by strong evidence. It is a review signal and does not automatically relabel the events.
 3. **Synchronized related-wallet burst** — reports multiple wallets in the same verified owner cluster trading within a narrow time window.
 4. **Wallet concentration** — reports top-wallet share of total market notional and HHI across wallets with identified addresses. Unattributed volume is reported separately.
-5. **Sell flow versus depth** — compares sell notional in a configured time window with the most recent sufficiently fresh executable sell-depth observation.
+5. **Buy/sell flow versus depth** — compares each side's quote notional in a configured time window with the corresponding most recent sufficiently fresh executable depth observation.
 6. **Pool/reference divergence** — reports absolute log-basis divergence only when the supplied reference is explicitly marked valid.
 
 ## Attribution is not rewritten
