@@ -17,7 +17,7 @@ At each simulation step, agents independently decide whether to wake up. Their o
 
 | Agent | Main objective | Distinct behavior |
 |---|---|---|
-| Dev / treasury | Preserve disclosed project inventory and liquidity commitments | Holds unlocked and locked allocations separately; commits a configured quote budget to LP at migration; can withdraw its own LP under a volatility-risk rule; no covert price-support or dump policy |
+| Dev / treasury | Preserve disclosed project inventory and liquidity commitments | Holds unlocked and locked allocations separately; can release and sell only under an explicit time-based vesting schedule; commits a configured quote budget to LP at migration; can withdraw its own LP under a volatility-risk rule; no covert price-support or dump policy |
 | Early sniper | Capture short-horizon launch opportunities | High early-curve activity, short and heterogeneous holding horizons, probabilistic exit around migration, profit/risk exits |
 | KOL | Maximize audience response and credibility | Posts stochastically; credibility differs by KOL; posts move attention and sentiment with noise and decay |
 | Arbitrageur | Capture cross-venue basis after costs | Compares local AMM price with a noisy external reference venue, pays external fees, and is capped by external executable depth |
@@ -26,7 +26,7 @@ At each simulation step, agents independently decide whether to wake up. Their o
 | LP provider | Earn fees while managing inventory exposure | May acquire inventory during the curve or pool phase; adds liquidity when a fee-yield proxy compensates for volatility risk; withdraws when its risk threshold is breached |
 | MEV / sandwich-risk actor | Represent adverse execution pressure | Estimates potential extraction/slippage exposure from order size relative to depth; it is an abstract risk overlay, not a live sandwich bot |
 
-The initial Dev allocation is 20% of total supply in the default synthetic configuration. 75% of that allocation is treated as locked, while the unlocked portion is held by the Dev account. The baseline also assigns 20% to other locked supply, 50% to the curve's real token inventory, and 10% to the external reference venue's token inventory. These are scenario defaults, not recommendations or Pump.fun protocol facts.
+The initial Dev allocation is 20% of total supply in the default synthetic configuration. 75% of that allocation is treated as locked, while the unlocked portion is held by the Dev account. Vesting and treasury-sale fractions default to zero; if enabled, releases and any associated sale are time-scheduled rather than price-triggered. The baseline also assigns 20% to other locked supply, 50% to the curve's real token inventory, and 10% to the external reference venue's token inventory. These are scenario defaults, not recommendations or Pump.fun protocol facts.
 
 ### Behavioral signal
 
