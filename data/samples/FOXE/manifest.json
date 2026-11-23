@@ -1,0 +1,106 @@
+{
+  "sample_id": "FOXE-2026-11-23",
+  "status": "candidate_identified_raw_chain_verification_pending",
+  "chain": "solana-mainnet",
+  "mint": "E2XCAc12j7Eb6NhXKYMmTcGBAryZ1WPuY1fwSbp4pump",
+  "name": "Foxecoin",
+  "symbol": "FOXE",
+  "quote_mint": "So11111111111111111111111111111111111111112",
+  "token_program": {
+    "reported": "Token-2022",
+    "program_id": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "verification": "third_party_indexer_claim_pending_getAccountInfo",
+    "extension_state": "unknown_pending_mint_TLV_decode"
+  },
+  "decimals": {
+    "reported": 6,
+    "verification": "third_party_indexer_claim_pending_getAccountInfo"
+  },
+  "creator": {
+    "address": "2griikJDBj2uJnjZ47s86tRn1XVTrLu2hMGS5UZto4sf",
+    "verification": "public_launchpad_page_claim_pending_create_instruction_decode"
+  },
+  "lifecycle": {
+    "created_at_utc_reported": "2026-11-23T02:31:00Z",
+    "graduated_at_utc_reported": "2026-11-23T02:38:00Z",
+    "created_slot": null,
+    "graduation_slot": null,
+    "creation_signature": null,
+    "graduation_signature": null,
+    "verification": "third_party_indexer_timestamps_pending_chain_signatures"
+  },
+  "post_graduation_pool": {
+    "reported_address": "GJELELum3v7KCSk5nEobE2VCeKoiDAZeSL9KW9WTedLx",
+    "dex": "PumpSwap",
+    "pair": "FOXE/SOL",
+    "verification": "third_party_market_indexer_claim_pending_pool_create_instruction_decode"
+  },
+  "discovery_observations": [
+    {
+      "field": "pre_graduation_pair_candidate",
+      "value": "Cmbjy...tciT",
+      "status": "stale_dexscreener_snapshot_not_used_as_pumpswap_pool",
+      "source": "https://dexscreener.com/solana/e2xcac12j7eb6nhxkymmtcgbaryz1wpuy1fwsbp4pump"
+    },
+    {
+      "field": "reported_supply",
+      "value": "981.91M",
+      "status": "third_party_indexer_claim_pending_getTokenSupply"
+    },
+    {
+      "field": "reported_top_pool",
+      "value": "FOXE/SOL",
+      "status": "third_party_indexer_claim"
+    }
+  ],
+  "archive": {
+    "rpc_source": null,
+    "first_slot": null,
+    "last_slot": null,
+    "history_signature_count": null,
+    "history_complete": false,
+    "raw_transactions_file": null,
+    "block_manifest_file": null,
+    "normalized_events_file": null,
+    "replay_report_file": null
+  },
+  "acceptance": {
+    "mint_owner_program_verified": false,
+    "token_2022_extensions_decoded": false,
+    "creation_signature_verified": false,
+    "graduation_signature_verified": false,
+    "migration_pool_verified": false,
+    "full_block_range_archived": false,
+    "raw_archive_hash_manifest_created": false,
+    "protocol_events_decoded": false,
+    "replay_consistent": false
+  },
+  "sources": [
+    {
+      "url": "https://dex-tokens.io/token/E2XCAc12j7Eb6NhXKYMmTcGBAryZ1WPuY1fwSbp4pump",
+      "supports": [
+        "reported Token-2022",
+        "reported decimals",
+        "reported creation time",
+        "reported graduation time",
+        "creator address"
+      ]
+    },
+    {
+      "url": "https://solana.pump.fun/coin/E2XCAc12j7Eb6NhXKYMmTcGBAryZ1WPuY1fwSbp4pump",
+      "supports": [
+        "name",
+        "symbol",
+        "creator",
+        "graduated PumpSwap status"
+      ]
+    },
+    {
+      "url": "https://www.btc.ph/memecoins/solana/GJELELum3v7KCSk5nEobE2VCeKoiDAZeSL9KW9WTedLx",
+      "supports": [
+        "full reported PumpSwap pool address",
+        "FOXE/SOL pair"
+      ]
+    }
+  ]
+}
