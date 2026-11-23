@@ -16,9 +16,18 @@ QUALITY_COMPONENTS = ("L", "E", "P", "R", "F", "I", "S")
 
 
 def _finite_nonnegative(name: str, value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a numeric value")
     number = float(value)
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{name} must be finite and nonnegative")
+    return number
+
+
+def _unit_interval(name: str, value: float) -> float:
+    number = _finite_nonnegative(name, value)
+    if number > 1:
+        raise ValueError(f"{name} must be in [0, 1]")
     return number
 
 def _small_int(name: str, value: object) -> int:
@@ -362,9 +371,7 @@ class MarketQualityThresholds:
             "max_recovery_time_p95_s",
         ):
             object.__setattr__(self, name, _finite_nonnegative(name, getattr(self, name)))
-        completeness = float(self.min_data_completeness)
-        if not math.isfinite(completeness) or not 0 <= completeness <= 1:
-            raise ValueError("min_data_completeness must be in [0, 1]")
+        completeness = _unit_interval("min_data_completeness", self.min_data_completeness)
         object.__setattr__(self, "min_data_completeness", completeness)
         _small_int("max_integrity_violations", self.max_integrity_violations)
 
@@ -388,9 +395,7 @@ class MarketQualityObservation:
             if value is not None:
                 object.__setattr__(self, name, _finite_nonnegative(name, value))
         if self.data_completeness is not None:
-            completeness = float(self.data_completeness)
-            if not math.isfinite(completeness) or not 0 <= completeness <= 1:
-                raise ValueError("data_completeness must be in [0, 1]")
+            completeness = _unit_interval("data_completeness", self.data_completeness)
             object.__setattr__(self, "data_completeness", completeness)
         _small_int("integrity_violations", self.integrity_violations)
 
@@ -411,18 +416,13 @@ def diagnostic_mqs(
         raise ValueError(f"components must contain exactly {QUALITY_COMPONENTS}")
     normalized = {}
     for name in QUALITY_COMPONENTS:
-        value = float(components[name])
-        if not math.isfinite(value) or not 0 <= value <= 1:
-            raise ValueError(f"component {name} must be in [0, 1]")
-        normalized[name] = value
+        normalized[name] = _unit_interval(f"component {name}", components[name])
     if weights is None:
         normalized_weights = {name: 1.0 / len(QUALITY_COMPONENTS) for name in QUALITY_COMPONENTS}
     else:
         if set(weights) != set(QUALITY_COMPONENTS):
             raise ValueError(f"weights must contain exactly {QUALITY_COMPONENTS}")
-        raw = {name: float(weights[name]) for name in QUALITY_COMPONENTS}
-        if any(not math.isfinite(value) or value < 0 for value in raw.values()):
-            raise ValueError("weights must be finite and nonnegative")
+        raw = {name: _finite_nonnegative(f"weight {name}", weights[name]) for name in QUALITY_COMPONENTS}
         total = math.fsum(raw.values())
         if total <= 0:
             raise ValueError("at least one weight must be positive")
