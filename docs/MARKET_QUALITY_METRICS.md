@@ -400,7 +400,15 @@ Do not silently classify unknown wallets as independent. Only the verified indep
 
 ### 14.4 Anomaly detection
 
-Monitor patterns including repeated reciprocal flows among related accounts, circular movement, rapid round trips with little net exposure change, unusually concentrated turnover, repeated common-control participation and volume that is inconsistent with independent holder growth.
+The implemented [Market Integrity Engine](MARKET_INTEGRITY_ENGINE.md) consumes canonical finalized swap events and optional verified wallet-link evidence and depth/reference observations. It reports:
+- rapid same-wallet two-way turnover, measured against net base-inventory change rather than quote notional alone;
+- substantial two-way turnover among wallets joined by verified disclosed-control or shared-authority evidence;
+- synchronized bursts among verified related wallets;
+- top-wallet concentration and wallet-volume HHI;
+- sell notional relative to a recent executable sell-depth benchmark;
+- pool/reference basis divergence when the independent reference is explicitly valid.
+
+Shared funders, fee payers, common withdrawal destinations, timing correlations and similar amount patterns are weak evidence. They are retained as informational review signals and never merge beneficial-owner clusters. The engine reports linked-owner volume separately and does not silently rewrite the event's attribution label.
 
 These are risk signals, not conclusive proof. Preserve evidence, confidence, false-positive review and appeal/audit records. Do not build a wallet-splitting or detection-evasion playbook.
 
@@ -549,7 +557,7 @@ Maintain separate stochastic populations for:
 - project Treasury and disclosed insiders;
 - generic adverse-execution / MEV-risk stress actors.
 
-Each population has distributions, not a single deterministic persona. A pure [Multi-Venue Route Selector](ROUTE_SELECTION.md) now evaluates supplied venue quotes against an independent reference, including depth, freshness, latency, settlement probability and a no-trade option. Route-choice response remains uncalibrated until observed intent/route/fill data is available.
+Each population has distributions, not a single deterministic persona. A pure [Multi-Venue Route Selector](ROUTE_SELECTION.md) now evaluates supplied venue quotes against an independent reference, including depth, freshness, latency, settlement probability and a no-trade option. Route-choice response remains uncalibrated until observed intent/route/fill data is available. The [Market Integrity Engine](MARKET_INTEGRITY_ENGINE.md) now evaluates canonical event tapes and verified beneficial-owner evidence without inferring intent from weak wallet correlations.
 
 ### 17.2 Behavioral state
 
