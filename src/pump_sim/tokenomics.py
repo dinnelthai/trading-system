@@ -232,7 +232,15 @@ def dev_exposure_metrics(
 
     direct = dev_unlocked_tokens + dev_locked_tokens
     beneficial = direct + dev_lp_token_claim
+    tolerance = max(1e-9, total_supply * 1e-12)
+    if beneficial > total_supply + tolerance:
+        raise ValueError("Dev beneficial exposure exceeds total_supply")
+    if circulating_supply > total_supply + tolerance:
+        raise ValueError("circulating_supply cannot exceed total_supply")
+    if wallet_free_float_tokens > total_supply + tolerance:
+        raise ValueError("wallet_free_float_tokens cannot exceed total_supply")
     return {
+        "dev_lp_token_claim": dev_lp_token_claim,
         "dev_unlocked_supply_share": dev_unlocked_tokens / total_supply,
         "dev_locked_supply_share": dev_locked_tokens / total_supply,
         "dev_direct_ownership_share": direct / total_supply,
