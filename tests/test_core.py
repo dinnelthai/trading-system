@@ -4,13 +4,16 @@ import random
 import pytest
 
 from pump_sim.core import (
+    Account,
     Action,
+    Agent,
     BondingCurve,
     CandleBuilder,
     ConstantProductPool,
     Phase,
     SimConfig,
     SimulationEngine,
+    Snapshot,
     Traits,
     Trade,
     run_monte_carlo,
@@ -544,3 +547,93 @@ def test_simulation_summary_includes_canonical_market_integrity_projection():
     assert market["verified_independent_volume_quote"] == pytest.approx(10.0)
     assert market["related_or_controlled_volume_quote"] == pytest.approx(10.0)
     assert market["unique_wallets"] == 2
+
+
+def test_informed_trader_population_is_configurable_and_seeded():
+    engine = SimulationEngine(
+        SimConfig(
+            seed=101,
+            duration_s=10,
+            n_snipers=0,
+            n_kols=0,
+            n_arbitrageurs=0,
+            n_informed_traders=3,
+            n_retail=0,
+            n_whales=0,
+            n_lp_providers=0,
+            n_mev_risk_agents=0,
+        )
+    )
+    informed = [agent for agent in engine.agents if agent.kind == "informed_trader"]
+    assert len(informed) == 3
+    assert all(agent.traits.social_sensitivity < 0.5 for agent in informed)
+
+
+def test_informed_trader_uses_fundamental_quality_signal_for_buy_and_sell():
+    traits = Traits(
+        activity_rate=0.01,
+        risk_aversion=0.1,
+        momentum_sensitivity=0.1,
+        social_sensitivity=0.05,
+        signal_noise=0.0,
+        order_fraction=0.15,
+        entry_threshold=0.1,
+        horizon_s=600,
+        latency_mean_s=0.2,
+        dev_overhang_sensitivity=0.0,
+        loss_aversion=1.5,
+        slippage_tolerance_bps=300,
+        migration_exit_probability=0.0,
+    )
+    snapshot = Snapshot(
+        timestamp=100,
+        phase=Phase.POOL,
+        pool_age_s=100,
+        project_quality=0.9,
+        price=1.0,
+        reference_price=1.0,
+        momentum=0.0,
+        volatility=0.0,
+        attention=1.0,
+        sentiment=0.0,
+        dev_supply_share=0.0,
+        dev_float_share=0.0,
+        dev_commitment_ratio=0.0,
+        top_holder_share=0.1,
+        curve_progress=1.0,
+        depth_quote=100.0,
+        recent_volume=10.0,
+    )
+    buyer = Agent("informed-buy", "informed_trader", Account(quote=10.0), traits, random.Random(1))
+    buy_action = buyer.decide(snapshot)
+    assert buy_action is not None and buy_action.kind == "buy"
+    assert 0 < buy_action.amount <= buyer.account.quote
+
+    seller = Agent("informed-sell", "informed_trader", Account(tokens=10.0), traits, random.Random(1))
+    bearish_snapshot = Snapshot(
+        timestamp=100,
+        phase=Phase.POOL,
+        pool_age_s=100,
+        project_quality=0.1,
+        price=1.0,
+        reference_price=1.0,
+        momentum=0.0,
+        volatility=0.0,
+        attention=1.0,
+        sentiment=0.0,
+        dev_supply_share=0.0,
+        dev_float_share=0.0,
+        dev_commitment_ratio=0.0,
+        top_holder_share=0.1,
+        curve_progress=1.0,
+        depth_quote=100.0,
+        recent_volume=10.0,
+    )
+    sell_action = seller.decide(bearish_snapshot)
+    assert sell_action is not None and sell_action.kind == "sell"
+    assert 0 < sell_action.amount <= seller.account.tokens
+
+
+def test_negative_informed_trader_population_is_rejected():
+    with pytest.raises(ValueError, match="agent population"):
+        SimConfig(n_informed_traders=-1).validate()
