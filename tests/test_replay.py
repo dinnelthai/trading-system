@@ -436,3 +436,63 @@ def test_replay_flags_post_complete_buy_without_a_curve_complete_marker():
         item["kind"] == "post_complete_buy_without_complete_marker"
         for item in report["reserve_continuity"]["mismatches"]
     )
+
+
+def test_snapshot_can_supply_only_after_quote_vault_and_signed_virtual_components():
+    snapshot = event(
+        "pool-snapshot-components",
+        "state_snapshot",
+        domain="pump_swap_pool",
+        base_after=100,
+        quote_after=90,
+        quote_vault_after=100,
+        virtual_quote_after=-10,
+    )
+    report = replay_events(normalize_events([snapshot]))
+    final_pool = report["final_reserves"]["pump_swap_pool"]
+    assert final_pool["quote_reserve"] == pytest.approx(90 / 1_000_000_000)
+    assert final_pool["quote_vault_reserve_raw"] == 100
+    assert final_pool["virtual_quote_reserve_raw"] == -10
+
+
+def test_replay_checks_quote_vault_and_virtual_components_even_when_effective_reserve_matches():
+    first = event(
+        "pool-first",
+        "pool_swap",
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=100,
+        quote_before=90,
+        base_after=90,
+        quote_after=100,
+        actor="wallet-a",
+        quote_vault_before=100,
+        virtual_quote_before=-10,
+        quote_vault_after=110,
+        virtual_quote_after=-10,
+    )
+    second = event(
+        "pool-second",
+        "pool_swap",
+        tx=1,
+        domain="pump_swap_pool",
+        side="buy",
+        token_amount_raw=10,
+        quote_amount_raw=10,
+        base_before=90,
+        quote_before=100,
+        base_after=80,
+        quote_after=110,
+        actor="wallet-b",
+        quote_vault_before=120,
+        virtual_quote_before=-20,
+        quote_vault_after=130,
+        virtual_quote_after=-20,
+    )
+    report = replay_events(normalize_events([first, second]))
+    assert report["replay_status"] == "discrepancies"
+    kinds = {item["kind"] for item in report["reserve_continuity"]["mismatches"]}
+    assert "pool_quote_vault_continuity" in kinds
+    assert "pool_virtual_quote_reserve_continuity" in kinds
