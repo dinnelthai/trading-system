@@ -285,6 +285,117 @@ def test_lp_withdrawal_resets_returned_token_cost_basis_to_withdrawal_price():
     assert dev.account.realized_pnl - realized_after_lp_exit == pytest.approx(expected_sale_pnl)
 
 
+def test_constant_product_pool_sell_retains_lp_fee_and_removes_protocol_fee():
+    pool = ConstantProductPool(10_000.0, 10.0, 30.0, lp_fee_share=0.70)
+    token_in = 250_000.0
+    reserve_before = pool.quote_reserve
+    gross = reserve_before * token_in / (pool.token_reserve + token_in)
+    fee = gross * pool.fee_rate
+    lp_fee = fee * pool.lp_fee_share
+    protocol_fee = fee - lp_fee
+
+    execution = pool.sell(token_in)
+
+    assert execution.amount_out == pytest.approx(gross - fee)
+    assert pool.quote_reserve == pytest.approx(reserve_before - gross + lp_fee)
+    assert pool.lp_fees_collected == pytest.approx(lp_fee)
+    assert pool.protocol_fees_collected == pytest.approx(protocol_fee)
+
+
+def test_partial_lp_withdrawal_preserves_beneficial_owner_exposure_and_basis():
+    engine = SimulationEngine(SimConfig(
+        duration_s=10,
+        n_snipers=0, n_kols=0, n_arbitrageurs=0,
+        n_retail=0, n_whales=0, n_lp_providers=0, n_mev_risk_agents=0,
+    ))
+    dev = engine.dev
+    assert dev is not None
+    engine.market.pool = ConstantProductPool(10_000.0, 1.0, 0.0)
+    engine.market.phase = Phase.POOL
+    dev.account.tokens = 100.0
+    dev.account.quote = 1.0
+    dev.account.avg_entry_price = 0.01
+
+    engine._execute(dev, Action("add_lp"), 0.0)
+    pool = engine.market.pool
+    assert pool is not None
+    shares_before = dev.account.lp_shares
+    basis_before = dev.account.lp_cost_basis_quote
+    alpha_before = shares_before / pool.total_lp_shares
+    token_exposure_before = dev.account.tokens + alpha_before * pool.token_reserve
+    quote_exposure_before = dev.account.quote + alpha_before * pool.quote_reserve
+
+    engine._execute(dev, Action("remove_lp", amount=0.5), 1.0)
+
+    alpha_after = dev.account.lp_shares / pool.total_lp_shares
+    token_exposure_after = dev.account.tokens + alpha_after * pool.token_reserve
+    quote_exposure_after = dev.account.quote + alpha_after * pool.quote_reserve
+    assert dev.account.lp_shares == pytest.approx(shares_before * 0.5)
+    assert dev.account.lp_cost_basis_quote == pytest.approx(basis_before * 0.5)
+    assert token_exposure_after == pytest.approx(token_exposure_before)
+    assert quote_exposure_after == pytest.approx(quote_exposure_before)
+    assert pool.price == pytest.approx(1.0 / 10_000.0)
+
+
+def test_lp_withdrawal_sale_order_exposes_external_depth_cost():
+    def make_engine():
+        engine = SimulationEngine(SimConfig(
+            duration_s=10,
+            n_snipers=0, n_kols=0, n_arbitrageurs=0,
+            n_retail=0, n_whales=0, n_lp_providers=0, n_mev_risk_agents=0,
+        ))
+        dev = engine.dev
+        assert dev is not None
+        engine.market.pool = ConstantProductPool(1_000.0, 1_000.0, 0.0)
+        engine.market.phase = Phase.POOL
+        dev.account.tokens = 500.0
+        dev.account.quote = 0.0
+        dev.account.avg_entry_price = 0.01
+        dev.account.lp_shares = 400.0
+        dev.account.lp_cost_basis_quote = 400.0
+        return engine
+
+    sell_then_remove = make_engine()
+    dev_a = sell_then_remove.dev
+    assert dev_a is not None
+    pool_a = sell_then_remove.market.pool
+    assert pool_a is not None
+    alpha_a0 = dev_a.account.lp_shares / pool_a.total_lp_shares
+    token_a0 = dev_a.account.tokens + alpha_a0 * pool_a.token_reserve
+    quote_a0 = dev_a.account.quote + alpha_a0 * pool_a.quote_reserve
+    sell_then_remove._execute(dev_a, Action("sell", amount=100.0), 1.0)
+    sell_then_remove._execute(dev_a, Action("remove_lp", amount=0.5), 2.0)
+    alpha_a1 = dev_a.account.lp_shares / pool_a.total_lp_shares
+    token_a1 = dev_a.account.tokens + alpha_a1 * pool_a.token_reserve
+    quote_a1 = dev_a.account.quote + alpha_a1 * pool_a.quote_reserve
+    price_ratio_a = pool_a.price / (1_000.0 / 1_000.0)
+
+    remove_then_sell = make_engine()
+    dev_b = remove_then_sell.dev
+    assert dev_b is not None
+    pool_b = remove_then_sell.market.pool
+    assert pool_b is not None
+    alpha_b0 = dev_b.account.lp_shares / pool_b.total_lp_shares
+    token_b0 = dev_b.account.tokens + alpha_b0 * pool_b.token_reserve
+    quote_b0 = dev_b.account.quote + alpha_b0 * pool_b.quote_reserve
+    remove_then_sell._execute(dev_b, Action("remove_lp", amount=0.5), 1.0)
+    remove_then_sell._execute(dev_b, Action("sell", amount=100.0), 2.0)
+    alpha_b1 = dev_b.account.lp_shares / pool_b.total_lp_shares
+    token_b1 = dev_b.account.tokens + alpha_b1 * pool_b.token_reserve
+    quote_b1 = dev_b.account.quote + alpha_b1 * pool_b.quote_reserve
+    price_ratio_b = pool_b.price / (1_000.0 / 1_000.0)
+
+    assert token_a0 == pytest.approx(token_b0)
+    assert quote_a0 == pytest.approx(quote_b0)
+    assert token_a0 - token_a1 == pytest.approx(60.0)
+    assert token_b0 - token_b1 == pytest.approx(75.0)
+    assert quote_a1 - quote_a0 == pytest.approx(54.5454545455)
+    assert quote_b1 - quote_b0 == pytest.approx(66.6666666667)
+    assert price_ratio_a == pytest.approx((1_000.0 / 1_100.0) ** 2)
+    assert price_ratio_b == pytest.approx((800.0 / 900.0) ** 2)
+    assert price_ratio_b < price_ratio_a
+
+
 def test_pool_liquidity_events_preserve_spot_and_swap_events_capture_depth_and_slippage():
     engine = SimulationEngine(SimConfig(
         seed=406,
