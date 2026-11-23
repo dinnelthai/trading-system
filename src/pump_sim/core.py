@@ -1686,6 +1686,21 @@ class SimulationEngine:
                     "verified_linked_owner_wallets": market.verified_linked_owner_wallets,
                     "top_wallet_volume_share": market.top_wallet_volume_share,
                     "wallet_volume_hhi": market.wallet_volume_hhi,
+                    "wallet_activity": [
+                        {
+                            "wallet_id": activity.wallet_id,
+                            "trade_count": activity.trade_count,
+                            "buy_volume_quote": activity.buy_volume_quote,
+                            "sell_volume_quote": activity.sell_volume_quote,
+                            "gross_volume_quote": activity.gross_volume_quote,
+                            "buy_base_amount": activity.buy_base_amount,
+                            "sell_base_amount": activity.sell_base_amount,
+                            "gross_base_amount": activity.gross_base_amount,
+                            "net_base_amount": activity.net_base_amount,
+                            "turnover_ratio": activity.turnover_ratio,
+                        }
+                        for activity in market.wallet_activity
+                    ],
                     "flags": [
                         {
                             "code": flag.code,
