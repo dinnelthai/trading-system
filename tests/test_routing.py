@@ -123,8 +123,8 @@ def test_fee_is_already_reflected_in_net_output_and_not_subtracted_twice():
         intent(),
         [buy_quote("fee-included", 9.95, fee_quote_equiv=50)],
     )
-    assert result.assessments[0].execution_cost_bps == pytest.approx(50.5)
-    assert result.expected_cost_bps == pytest.approx(50)
+    assert result.assessments[0].execution_cost_bps == pytest.approx(50.0)
+    assert result.expected_cost_bps == pytest.approx(50.5)
 
 
 def test_latency_and_quote_age_penalties_affect_expected_cost():
