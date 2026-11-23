@@ -311,3 +311,22 @@ def test_round_trip_requires_low_net_base_inventory_not_just_balanced_quote_noti
     assert activity.sell_base_amount == pytest.approx(1)
     assert activity.net_base_amount == pytest.approx(1)
     assert activity.turnover_ratio == pytest.approx(2 / 3)
+
+
+def test_buy_pressure_is_compared_with_buy_side_executable_depth():
+    events = [
+        trade("buyer", "buy", signature="b1", timestamp=10, quote=150_000),
+        trade("buyer", "buy", signature="b2", timestamp=20, quote=150_000),
+    ]
+    depth = DepthObservation(
+        timestamp_s=59,
+        base_mint="token-mint",
+        quote_mint="quote-mint",
+        buy_depth_quote=100,
+        sell_depth_quote=1_000,
+    )
+    report = MarketIntegrityAnalyzer(config()).analyze(events, depth_observations=[depth])
+    flag = next(f for f in report.flags if f.code == "BUY_FLOW_EXCEEDS_EXECUTABLE_DEPTH")
+    metrics = dict(flag.metrics)
+    assert metrics["buy_volume_quote"] == pytest.approx(300)
+    assert metrics["pressure_multiple"] == pytest.approx(3)
