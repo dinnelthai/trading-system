@@ -282,13 +282,15 @@ class EventLedger:
         return [event for event in self.events() if self._is_accepted_swap(event)]
 
     def summary(self) -> dict[str, object]:
-        per_market: dict[tuple[str, QuoteNotionalBasis], dict[str, object]] = {}
+        per_market: dict[tuple[str, str, QuoteNotionalBasis], dict[str, object]] = {}
         for event in self.accepted_swaps():
-            key = (event.quote_mint or "", event.quote_notional_basis)
+            key = (event.base_mint or "", event.quote_mint or "", event.quote_notional_basis)
             row = per_market.setdefault(
                 key,
                 {
+                    "base_mint": event.base_mint,
                     "quote_mint": event.quote_mint,
+                    "base_decimals": event.base_decimals,
                     "quote_decimals": event.quote_decimals,
                     "quote_notional_basis": event.quote_notional_basis.value,
                     "swap_count": 0,
@@ -304,6 +306,8 @@ class EventLedger:
                     "creator_fee_quote_raw": 0,
                 },
             )
+            if row["base_decimals"] != event.base_decimals or row["quote_decimals"] != event.quote_decimals:
+                raise EventConflictError("mint decimals changed within one market volume group")
             row["swap_count"] += 1
             row["volume_quote_raw"] += event.quote_amount_raw
             row["lp_fee_quote_raw"] += event.lp_fee_quote_raw
@@ -352,7 +356,7 @@ class EventLedger:
             "excluded_event_counts": excluded,
             "markets": [
                 per_market[key]
-                for key in sorted(per_market, key=lambda item: (item[0], item[1].value))
+                for key in sorted(per_market, key=lambda item: (item[0], item[1], item[2].value))
             ],
         }
 
@@ -375,6 +379,9 @@ class EventLedger:
             grouped.items(), key=lambda item: item[0]
         ):
             ordered = sorted(events, key=lambda event: event.ordering_key)
+            decimal_pairs = {(event.base_decimals, event.quote_decimals) for event in ordered}
+            if len(decimal_pairs) != 1:
+                raise EventConflictError("mint decimals changed within one candle")
             prices = [event.price_quote_per_base for event in ordered]
             notionals = [event.quote_notional for event in ordered]
             base_volumes = [
