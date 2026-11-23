@@ -661,7 +661,7 @@ This parent document defines product direction and system boundaries. The dedica
 
 1. Validate exact PumpSwap proportional LP add/remove accounting against the deployed program semantics.
 2. Implement the canonical state and action-transition contract in the simulator.
-3. Calibrate and implement the LP-versus-Treasury allocator, including inventory conversion, fee/LVR economics, genuine-volume elasticity and tail-risk constraints; see [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
+3. Formalize multi-venue route choice and causal depth elasticity using [Pool Depth Elasticity](DEPTH_ELASTICITY.md); then calibrate and implement the LP-versus-Treasury allocator, including fee/LVR economics and tail-risk constraints in [Dev LP vs Treasury — Dynamic Capital Allocation](DEV_LP_TREASURY_ALLOCATION.md).
 4. Derive and implement Dev Treasury & Exit Intelligence, including beneficial-owner aggregation and optimal-stopping policy.
 5. Implement the decision orchestrator and multi-timescale state machine.
 6. Run historical replay, matched-seed simulation and paper validation before any live authorization.
