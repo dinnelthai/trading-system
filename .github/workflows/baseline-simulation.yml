@@ -61,6 +61,8 @@ jobs:
           assert summary["runs"] > 0
           assert 0 <= summary["graduation_rate"] <= 1
           assert abs(summary["metrics"]["token_supply_accounting_error"]["mean"]) < 1e-3
+          supply_error = summary["metrics"]["token_supply_accounting_error_fraction"]
+          assert max(abs(supply_error["p10"]), abs(supply_error["p90"])) < 1e-9
           assert summary["metrics"]["trades"]["mean"] >= 0
           print("runs:", summary["runs"])
           print("graduation rate:", summary["graduation_rate"])
@@ -68,6 +70,8 @@ jobs:
           print("mean drawdown:", summary["metrics"]["max_drawdown"]["mean"])
           print("mean trades:", summary["metrics"]["trades"]["mean"])
           print("mean quote volume:", summary["metrics"]["true_volume_quote"]["mean"])
+          print("mean curve reserve:", summary["metrics"]["curve_real_quote_reserve"]["mean"])
+          print("mean curve net quote flow:", summary["metrics"]["curve_net_quote_flow"]["mean"])
           PY
       - uses: actions/upload-artifact@v4
         with:
