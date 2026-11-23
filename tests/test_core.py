@@ -188,7 +188,7 @@ def test_executions_are_processed_in_chronological_event_order():
 def test_agent_activation_events_are_asynchronous_and_individually_scheduled():
     engine = SimulationEngine(SimConfig(seed=515, duration_s=30, n_retail=20))
     activation_times = [event[0] for event in engine.activation_queue]
-    assert len(activation_times) == 1 + 12 + 3 + 4 + 20 + 5 + 8
+    assert len(activation_times) == 1 + 12 + 3 + 4 + 8 + 20 + 5 + 8
     assert len(set(activation_times)) == len(activation_times)
     assert min(activation_times) > 0
 
