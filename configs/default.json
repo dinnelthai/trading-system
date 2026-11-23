@@ -20,7 +20,6 @@
   "external_fee_bps": 8,
   "external_depth_quote": 50,
   "external_initial_token_reserve": 100000000,
-  "external_initial_token_reserve": 100000000,
   "n_snipers": 12,
   "n_kols": 3,
   "n_arbitrageurs": 4,
