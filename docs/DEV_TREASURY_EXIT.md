@@ -299,6 +299,29 @@ The optimal action may be a partial sale. The system must not assume either:
 
 The retained reserve is derived from explicit future obligations, authorized operating capital, LP commitments and risk limits. Inventory above that reserve is eligible for the hold-versus-sell optimizer, subject to vesting and integrity constraints.
 
+### 7.3 What makes an exit window attractive?
+
+The best exit window is not necessarily the highest displayed price. It is the point where a meaningful amount of inventory can be converted into settled quote assets at a favorable net price, while the risk-adjusted value of waiting is no longer better.
+
+Evidence that can improve an exit window:
+
+- Strong, sustained buy-side executable depth from the real pool and/or verified independent counterparties.
+- Sufficient quote reserves to pay the intended sale without exceeding the approved impact budget.
+- A pool price that is consistent with independent executable reference prices rather than a temporary isolated print.
+- Healthy two-sided participation and low data uncertainty.
+- A sale quantity that can be absorbed without breaching the approved post-sale depth and reserve floors.
+- A current net proceeds estimate that exceeds the risk-adjusted continuation value for the tranche being considered.
+
+Signals that must not be mistaken for an attractive exit window:
+
+- A high marginal spot price with very little executable depth.
+- A brief price spike unsupported by persistent independent flow.
+- Volume created by LP events, internal transfers, controlled-wallet trades or related-party activity.
+- A chart pattern or price level without a corresponding executable bid.
+- A promotional attention spike when treasury ownership or planned sales are not properly disclosed.
+
+Therefore, the engine should rank windows by **net executable proceeds, risk reduction and continuation value**, not by ATH detection or a fixed market-cap target. No model can guarantee that it sells at the ex-post peak.
+
 ## 8. Sale sizing and execution schedule
 
 The amount sold in one decision cycle is constrained by:
