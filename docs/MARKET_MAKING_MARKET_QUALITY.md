@@ -4,7 +4,7 @@
 **Version:** 0.1  
 **Status:** Direction locked; mathematical specification and simulation validation in progress  
 **Repository:** `dinnelthai/trading-system`  
-**Scope:** Pump.fun launch lifecycle, graduation, PumpSwap and supported Solana AMM venues
+**Initial implementation scope:** Pump.fun Bonding Curve → graduation → PumpSwap CPMM fixed pool. Other AMM adapters may be researched later, but dynamic DLMM Bin and CLMM Tick positioning are out of the current core scope.
 
 > This document defines the target system and its research boundaries. It is not a claim that all engines or strategies are already implemented, nor does it authorize live execution. The current simulator remains a research and stress-testing environment.
 
@@ -179,30 +179,44 @@ The engine should estimate inventory risk under price, liquidity, and flow scena
 
 ### 3.5 Liquidity Engine
 
-**Purpose:** Manage the amount of committed liquidity in a fixed pool and measure its effect on executable depth, capital use and inventory risk.
+**Purpose:** Manage the size, timing and risk of liquidity committed to the fixed PumpSwap CPMM pool.
 
-Core strategy scope:
+**Core policy decision:** The initial product uses a fixed pool and proportional liquidity additions/removals. It does not dynamically migrate liquidity across DLMM bins or CLMM ticks, and it does not chase price by repeatedly changing LP positions.
 
-- PumpSwap CPMM is the primary execution and liquidity-management venue.
-- Establish the initial pool position using a pre-approved capital and inventory budget.
-- Add liquidity proportionally to the existing pool ratio; remove liquidity proportionally when an independently justified risk or capital decision requires it.
-- Decide ADD / HOLD / REMOVE from depth requirements, expected fee economics, inventory stress, capital reserves and execution costs.
-- Estimate buy/sell depth at several fee-aware impact budgets.
-- Track LP ownership, withdrawability, fees, locked/burned claims and pool accounting.
-- Do not dynamically move DLMM bins or CLMM ticks as a core strategy. Other venues may be monitored or modeled for reference, but position migration is out of scope unless explicitly re-approved.
+Responsibilities:
 
-For an ideal CPMM with token reserve X, quote reserve Y and P=Y/X, a proportional deposit satisfying ΔY/ΔX=Y/X preserves the marginal spot price while increasing depth. A proportional withdrawal has the corresponding effect in reverse. Swaps, not proportional LP deposits or withdrawals, change the pool's marginal price.
+- Validate the Pump.fun bonding-curve state and graduation/migration accounting.
+- Calculate initial pool funding from executable-depth requirements, authorized capital and inventory constraints.
+- Calculate proportional add/remove amounts against the current CPMM reserve ratio.
+- Evaluate ADD / HOLD / REMOVE proposals using expected real flow, fee economics, inventory exposure and risk budgets.
+- Track LP ownership, underlying Token/SOL claims, withdrawability, fees and committed capital.
+- Reconcile every confirmed liquidity instruction against pool reserves and the Dev's LP claim.
+- Keep free inventory, LP underlying assets and treasury holdings in separate accounting buckets.
 
-Protocol-specific behavior must remain separate:
+For an ideal fee-free CPMM with Token reserve X and quote reserve Y, a proportional addition satisfies:
 
-| Mechanism | Current product scope | Important limitation |
-|---|---|---|
-| PumpSwap / CPMM | Primary fixed-pool liquidity management; proportional add/remove, reserve and LP accounting | Proportional add/remove changes depth, not the spot-price ratio; swaps move price |
-| Meteora DLMM | Market observation and analytics adapter only | Bin liquidity is not a guaranteed order-book limit order |
-| Raydium CLMM | Market observation and analytics adapter only | Concentrated range behavior requires protocol-specific accounting |
-| Orca Whirlpools | Market observation and analytics adapter only | Tick and position mechanics remain venue-specific |
+\[
+\frac{\Delta Y}{\Delta X}=\frac{Y}{X}
+\]
 
-Do not transfer one venue's reserve, fee or execution formulas to another venue without an explicit adapter and tests.
+and therefore:
+
+\[
+P'=\frac{Y+\Delta Y}{X+\Delta X}=\frac{Y}{X}=P
+\]
+
+A proportional addition increases depth without changing the spot-price ratio. A proportional removal reduces depth without changing the spot-price ratio. Actual execution must account for protocol fees, token transfer behavior, rounding, account state and instruction version.
+
+The amount of liquidity is selected from executable-depth targets and stress scenarios. It is not selected to force a price path, smooth candles, or create artificial demand.
+
+**Out of current core scope:**
+
+- Dynamic DLMM Bin migration.
+- Dynamic CLMM Tick/range migration.
+- Price-following LP repositioning.
+- Repeated range shifting as a substitute for inventory management.
+
+These are not required for the fixed-pool Dev market-making design. Future protocol integrations require a separate product decision and research specification.
 
 ### 3.6 Execution Engine
 
@@ -573,7 +587,7 @@ A research result is not accepted because one chart looks better. It must:
 
 **Direction locked:** Build a complete Market Making & Market Quality System, not a standalone LP Manager.
 
-**Strategy scope clarified:** Use a fixed PumpSwap CPMM pool as the core liquidity model. Optimize initial liquidity, proportional additions, proportional risk/capital withdrawals, and the Dev inventory/capital budget. Dynamic DLMM Bin and CLMM Tick repositioning is not part of the core strategy.
+**Initial market scope locked:** Pump.fun Bonding Curve → graduation → PumpSwap CPMM fixed pool. LP policy is initial funding plus proportional ADD / HOLD / REMOVE. Dynamic DLMM Bin and CLMM Tick positioning is not part of the current core design.
 
 **Existing research foundation in this repository:**
 
@@ -583,13 +597,11 @@ A research result is not accepted because one chart looks better. It must:
 - Technical R04 historical event replay and calibration.
 - Agent-based stochastic participant simulation.
 - Empirical calibration data contract.
-- Initial spot-only capital allocation and multi-timescale control derivations.
+- Initial capital-allocation, inventory-risk and multi-timescale control derivations in the product research discussion.
 
-**Not yet complete:** Empirical calibration of the capital allocator, a production-grade canonical state contract, implementation of the decision orchestrator, robust scenario calibration, and validation across held-out historical cohorts.
+**Not yet complete:** A canonical state contract, calibrated optimal capital allocator, executable decision orchestrator, complete conflict-resolution policy, and held-out empirical validation across real historical cohorts.
 
-**Next workstream:** Derive joint action sequencing and robust scenario evaluation for the decision orchestrator, then implement a simulator-side solver. Do not begin live execution until accounting, replay, simulation, risk controls, decision arbitration and paper validation pass their acceptance gates.
-
-**Detailed arbitration specification:** See [Decision Orchestrator](DECISION_ORCHESTRATOR.md).
+**Next workstream:** Formalize the Market Making Decision Orchestrator and its risk-priority hierarchy, then implement the fixed-CPMM action evaluator. The orchestrator must compare HOLD, proportional ADD, proportional REMOVE and PAUSE under identical scenarios; hard safety and capital constraints must never be traded away for a market-quality score. Do not begin live execution until accounting, replay, simulation, risk controls and paper validation pass their acceptance gates.
 
 ---
 
@@ -599,15 +611,339 @@ A research result is not accepted because one chart looks better. It must:
 |---|---|
 | Product is a complete Market Making & Market Quality System | Locked |
 | LP Manager is only one subsystem | Locked |
+| Initial market scope is Pump.fun Bonding Curve → PumpSwap CPMM | Locked |
+| Fixed pool with proportional LP additions/removals | Locked |
+| Dynamic DLMM Bin / CLMM Tick positioning is out of current core scope | Locked |
 | Full lifecycle from launch through mature/stress market | Locked |
 | Shared state and centralized decision arbitration | Locked |
 | Eight engines defined by responsibility | Proposed architecture |
-| Core liquidity strategy uses a fixed PumpSwap CPMM pool | Locked |
-| LP additions and removals are proportional; no core dynamic Bin/Tick repositioning | Locked |
-| Spot inventory and liquidity capital are managed jointly | Locked |
+| Spot inventory and dynamic capital allocation are primary tools | Locked |
 | Perpetual futures and options hedging are excluded | Locked |
 | Market quality is not equivalent to low volatility or smooth candles | Locked |
 | True volume must come only from genuine successful swaps | Locked |
-| Decision arbitration uses hard constraints, quality service targets, risk-adjusted economics and churn control | Proposed architecture |
-| Detailed orchestration specification | See DECISION_ORCHESTRATOR.md |
+| Risk and integrity constraints have veto priority over quality and return objectives | Locked |
+| LP action policy is proportional ADD / HOLD / REMOVE / PAUSE | Proposed policy |
+| Next research priority is the Market Making Decision Orchestrator | Locked |
+
+---
+
+
+## 12. Market Making Decision Orchestrator
+
+### 12.1 Purpose
+
+The Market Making Decision Orchestrator (MDO) is the single policy arbitration layer for the system. It is not another independent trading agent and it does not replace the specialist engines. Specialist engines observe, estimate, measure or propose; the orchestrator selects one coherent action under a shared objective and hard constraints.
+
+No specialist engine may independently authorize or submit a transaction.
+
+### 12.2 Standard proposal contract
+
+Every specialist proposal must use a common structure:
+
+| Field | Meaning |
+|---|---|
+| State version | Exact canonical market-state snapshot used |
+| Proposal type | ADD, HOLD, REMOVE, PAUSE, inventory action or no-op |
+| Amount | SOL-equivalent capital or LP fraction, where relevant |
+| Horizon | Period over which the proposal is evaluated |
+| Trigger evidence | Observed events and metrics that caused the proposal |
+| Expected effects | Change in depth, inventory, Delta/Gamma, fees and capital lock-up |
+| Cost estimate | Swap, LP instruction, priority fee, rent, slippage and opportunity cost |
+| Risk estimate | Scenario loss, CVaR, reserve impact and protocol exposure |
+| Confidence | Forecast confidence and data-quality status |
+| Expiry | Time or state change after which the proposal is invalid |
+
+A proposal is not an execution instruction. The orchestrator must recompute its effects against the latest canonical state before approval.
+
+### 12.3 Decision authority
+
+| Layer | Responsibility | Authority |
+|---|---|---|
+| Market Intelligence | Confirmed facts, account state and event reconciliation | Publish canonical state; no trading authority |
+| Flow Intelligence | Participant-flow estimates and scenario probabilities | Propose forecasts; no trading authority |
+| Market Quality | Depth, impact, basis and recovery measurements | Propose service gaps; no trading authority |
+| Inventory | Portfolio inventory, Delta/Gamma and stress exposure | Propose inventory limits/actions |
+| Liquidity | PumpSwap proportional ADD/REMOVE calculations | Propose LP actions; no transaction authority |
+| Execution | Build, simulate, submit and reconcile permitted instructions | Execute only an approved, unexpired action |
+| Risk | Hard constraints, protocol safety and integrity checks | Veto, cap or pause |
+| Orchestrator | Compare all proposals under one state and objective | Select one coherent action |
+
+Risk has veto authority, not an independent mandate to trade. Execution has transaction capability, not policy authority.
+
+### 12.4 Lexicographic priority hierarchy
+
+The system must not use a single weighted score to trade safety against market quality. Decision priority is hierarchical:
+
+**Priority 0 — Integrity and state validity (hard gate)**
+
+- Confirmed protocol state and supported instruction version.
+- Fresh, complete enough data for the proposed action.
+- No duplicate or unresolved conflicting transaction.
+- No self-trading, wash trading, fabricated volume, deceptive coordination or price/candle manipulation.
+- Correct ownership, authorization and capital mandate.
+
+If this gate fails, no new discretionary liquidity or inventory action is approved. The system enters a safe observation or pause mode. An uncertain state must not trigger an automatic LP withdrawal that could make the situation worse.
+
+**Priority 1 — Capital and risk constraints (hard gate)**
+
+- Authorized capital is not exceeded.
+- Minimum execution and liquidity reserves are preserved.
+- Inventory stress loss remains within the approved budget.
+- LP exposure and concentration remain within limits.
+- Transaction size, slippage and protocol-risk limits are respected.
+- No action relies on unconfirmed inventory or double-counted LP assets.
+
+A candidate that violates a hard constraint is rejected even if it would improve depth or expected fees.
+
+**Priority 2 — Market-quality service objective**
+
+Within the safe feasible set, evaluate real executable buy/sell depth, price impact, execution reliability and recovery. Depth targets are service objectives derived from observed independent demand and stress distributions, not guarantees and not reasons to breach capital limits.
+
+If available capital cannot satisfy a depth target within risk limits, report the shortfall. Do not manufacture volume or force additional capital into the pool.
+
+**Priority 3 — Risk-adjusted economic value**
+
+Among feasible actions, compare expected net market-making return, inventory risk, capital lock-up, transaction cost and tail loss.
+
+**Priority 4 — Operational stability**
+
+Prefer the least disruptive action when two candidates have materially similar expected value. Account for action churn, cooldown, pending transactions and operational complexity.
+
+### 12.5 Candidate action set
+
+For the initial fixed PumpSwap CPMM design:
+
+\[
+A_t=\{HOLD,\ ADD(a),\ REMOVE(r),\ PAUSE\}
+\]
+
+where:
+
+- HOLD: make no liquidity change.
+- ADD(a): add a proportional amount of liquidity, with a bounded SOL-equivalent budget.
+- REMOVE(r): withdraw a proportional fraction of the existing LP claim.
+- PAUSE: block new discretionary LP actions while continuing safe observation and reconciliation.
+
+The initial policy does not combine ADD and REMOVE in the same decision cycle. It does not move bins, ticks or price ranges. Inventory actions are evaluated as a separate portfolio decision and must not be disguised as LP operations.
+
+### 12.6 Unified action evaluation
+
+For each candidate action \(a\), simulate the post-action state over a common horizon and common scenario set \(\Omega\):
+
+\[
+S_{t+h}^{\omega}=F(S_t,a,\omega),\quad \omega\in\Omega
+\]
+
+Calculate:
+
+\[
+U(a)=
+E[\Pi_{\mathrm{net}}(a)]
+-\lambda CVaR_{\alpha}(L(a))
+-\kappa C_{\mathrm{switch}}(a)
+-\eta_D \xi_D(a)
+-\eta_E \xi_E(a)
+\]
+
+where:
+
+- \(\Pi_{\mathrm{net}}\): fees and legitimate inventory PnL net of adverse selection, transaction costs and capital cost, with no double counting.
+- \(CVaR_{\alpha}\): tail loss under the action.
+- \(C_{\mathrm{switch}}\): action churn and operational cost.
+- \(\xi_D\): shortfall against the approved executable-depth service target.
+- \(\xi_E\): execution-quality shortfall against the approved service target.
+- \(\lambda,\kappa,\eta_D,\eta_E\): mandate parameters calibrated through simulation and empirical validation.
+
+Do not reward raw trading volume, price appreciation, candle smoothness or the number of transactions. Market-quality utility is based on executable service and resilience.
+
+Candidate actions must first pass all hard gates. The utility function only ranks feasible actions; it cannot override a veto.
+
+### 12.7 Hard constraints
+
+A candidate action is feasible only if all applicable constraints hold after the action and under required stress scenarios:
+
+\[
+K_I+K_L+K_R+K_E\leq K_{\mathrm{authorized}}
+\]
+
+\[
+K_R\geq K_R^{min},\qquad K_E\geq K_E^{min}
+\]
+
+\[
+\max_{\omega\in\Omega_{stress}}L_{\mathrm{inventory}}^\omega(a)
+\leq B_I
+\]
+
+\[
+CVaR_{\alpha}(L(a))\leq B_{\mathrm{tail}}
+\]
+
+\[
+Impact(q;S_{t+h}^{\omega})\leq Impact^{max}
+\]
+
+In addition:
+
+- Data freshness and completeness must exceed action-specific minimums.
+- LP position and pool reserves must reconcile.
+- A pending LP instruction must be resolved before another conflicting LP action.
+- The post-action state must preserve the minimum authorized capital reserve.
+- The transaction must pass simulation and instruction-level validation.
+
+Depth targets may be unmet if no safe feasible action can satisfy them. The orchestrator must report this explicitly rather than silently relaxing a risk limit.
+
+### 12.8 Conflict-resolution examples
+
+| Conflict | Orchestrator decision |
+|---|---|
+| Market Quality requests ADD, but inventory stress limit would be breached | Reject ADD; report depth shortfall and inventory constraint |
+| Flow model predicts heavy selling, but data is stale | Do not act on the forecast; enter degraded-data mode and refresh state |
+| Fee APR is high, but expected adverse selection/LVR exceeds fee income | Do not add LP |
+| Current depth is adequate, but fee income is positive | Do not add solely because fees are positive; compare marginal net return and capital cost |
+| LP withdrawal reduces future LP exposure but releases Token into free inventory | Recompute total portfolio risk before approving REMOVE |
+| Protocol or transaction state is uncertain | Pause discretionary actions; reconcile before resuming |
+| Emergency risk condition occurs during cooldown | Safety pause may override cooldown; no automatic price-directed trade |
+
+### 12.9 Operating modes
+
+The orchestrator maintains an explicit system mode:
+
+| Mode | Entry condition | Permitted behavior |
+|---|---|---|
+| NORMAL | Data and protocol state valid; risk within limits | Evaluate HOLD / ADD / REMOVE |
+| DEGRADED_DATA | Stale, incomplete or conflicting observations | Observe, reconcile and block discretionary actions |
+| INVENTORY_DEFENSE | Inventory approaches or exceeds warning band | Block risk-increasing actions; evaluate independent risk-reduction options |
+| CAPITAL_CONSERVATION | Reserve or tail-risk budget approaches limit | Block discretionary capital deployment |
+| EMERGENCY_PAUSE | Protocol, authorization or critical safety failure | Stop new discretionary execution and reconcile exposure |
+| RECOVERY | Failure condition resolved but stability not yet demonstrated | Resume gradually after validation and dwell period |
+
+Mode transitions use separate entry and exit thresholds to prevent oscillation. Recovery requires fresh state, reconciled transactions and a stable observation period.
+
+### 12.10 Transaction lifecycle and state consistency
+
+Every approved action must be bound to:
+
+- canonical state version;
+- action ID and idempotency key;
+- maximum amount and slippage;
+- expiry condition;
+- risk approval;
+- exact instruction parameters.
+
+Execution sequence:
+
+1. Orchestrator approves a bounded action.
+2. Execution rechecks the state version and account balances.
+3. Transaction is simulated and validated.
+4. Transaction is submitted once using an idempotency key.
+5. Confirmation and finality are observed.
+6. Pool reserves, LP claims and wallet balances are reconciled.
+7. Only then is the canonical state advanced and the action marked complete.
+
+If state changes materially before submission, the approval expires and must be recomputed. A failed or unresolved transaction must not be treated as a completed state transition.
+
+### 12.11 Required decision output
+
+Every decision cycle must produce an auditable record:
+
+- current mode and state version;
+- candidate actions considered;
+- proposals accepted and rejected;
+- hard-gate results and veto reasons;
+- scenario assumptions and forecast confidence;
+- expected depth and execution-quality changes;
+- expected net return, tail risk and capital usage;
+- selected action or explicit NO_ACTION;
+- post-action reconciliation and realized outcome.
+
+A valid decision may be NO_ACTION. The system must not invent an action simply because an evaluation cycle ran.
+
+---
+
+## 13. Multi-timescale control policy
+
+### 13.1 Control layers
+
+| Layer | Initial cadence | Primary responsibility | Transaction authority |
+|---|---|---|---|
+| L0 — Event safety | Event-driven; seconds-scale observation | Confirm swaps, reserves, transaction status, protocol and data anomalies | May trigger a safety pause; no discretionary LP sizing |
+| L1 — Inventory and flow | Rolling minutes-scale | Aggregate flow, update inventory exposure, forecast uncertainty and risk bands | Propose inventory/risk changes; no independent LP transaction |
+| L2 — Liquidity and capital | Periodic hours-scale evaluation plus risk-triggered re-evaluation | Evaluate proportional ADD / HOLD / REMOVE and reserve allocation | Orchestrator approval required |
+| L3 — Lifecycle capital | Launch, graduation and material mandate changes | Set authorized capital, initial supply/accounting policy, initial LP budget and phase limits | Requires explicit capital authorization |
+
+Cadences are initial design windows, not hard-coded universal constants. Calibration must account for block time, event rate, pool liquidity, transaction latency and observed market regime.
+
+### 13.2 Event-driven safety versus periodic strategy
+
+L0 is event-driven because protocol and transaction safety cannot wait for an hourly evaluation. However, an event does not automatically authorize a liquidity action.
+
+L1 updates flow and inventory estimates on rolling windows. It may request an immediate L2 re-evaluation when a hard risk boundary or a material state change occurs.
+
+L2 performs slower capital decisions. It should not resize LP merely because one swap changed the spot price.
+
+L3 changes only when lifecycle conditions or explicit capital authorization change. It must not chase short-term price movement.
+
+### 13.3 Hysteresis, persistence and cooldown
+
+For any discretionary action trigger, define:
+
+- Entry threshold \(\theta_{on}\).
+- Exit threshold \(\theta_{off}\), with \(\theta_{off}<\theta_{on}\).
+- Persistence window \(T_{persist}\).
+- Cooldown \(T_{cooldown}\).
+- Emergency override conditions.
+
+A trigger is eligible only when the condition persists for the required observation window and the data-quality gate passes.
+
+Cooldown reduces repeated discretionary changes. It must never block a safety pause or required reconciliation. Cooldown expiry does not imply that an action should occur; the full decision must be recomputed.
+
+### 13.4 Forecast uncertainty
+
+For a predicted flow quantity \(Q_{pred}\) and forecast residual distribution \(\epsilon_Q\), construct scenario demand from the empirical residual distribution:
+
+\[
+Q_{stress}=Q_{pred}+Quantile_{\alpha}(\epsilon_Q)
+\]
+
+Do not assume normal residuals without evidence. Meme-token flows may be heavy-tailed, clustered and regime-dependent. Calibrate uncertainty by token cohort, lifecycle phase and forecast horizon, and preserve an explicit unknown/low-confidence state.
+
+### 13.5 Shared state, different aggregation windows
+
+All layers use the same canonical event ledger and state version. They may derive different rolling windows, but must not maintain contradictory copies of balances or LP claims.
+
+- L0 consumes confirmed events and protocol account updates.
+- L1 aggregates event flow and inventory over rolling windows.
+- L2 consumes L1 forecasts plus current executable depth and capital constraints.
+- L3 supplies authorization and lifecycle policy bounds.
+
+Every derived metric records its source window, timestamp, state version and confidence.
+
+### 13.6 Multi-timescale acceptance tests
+
+- A single large swap does not automatically trigger an LP resize.
+- Persistent depth shortfall can request an L2 evaluation.
+- An inventory hard-limit breach blocks risk-increasing LP actions.
+- A stale or conflicting state blocks discretionary actions.
+- Emergency pause overrides cooldown.
+- A pending LP transaction prevents a conflicting second transaction.
+- L2 cannot exceed L3 authorized capital.
+- L0 event reconciliation and L1/L2 aggregates agree on balances and event counts.
+- Replaying the same event sequence and policy version produces the same decision, except where explicitly modeled stochastic inputs differ.
+
+---
+
+## 14. Next research sequence
+
+The next derivations and implementation work should follow this dependency order:
+
+1. **Canonical state and accounting contract:** define exact Pump.fun curve, PumpSwap reserve, LP claim, free inventory and treasury fields.
+2. **Fixed-CPMM action transition model:** calculate exact post-action state for proportional ADD / REMOVE, including protocol fees, rounding and account semantics.
+3. **Inventory conversion policy:** compare HOLD, LP withdrawal and independently authorized spot inventory reduction without double-counting assets or assuming that withdrawal removes Token exposure.
+4. **Capital allocator:** solve for free inventory, LP capital, liquidity reserve and execution reserve under stress constraints.
+5. **Decision orchestrator:** implement proposal contract, hard-gate hierarchy, action scoring, state machine and audit record.
+6. **Multi-timescale replay:** test event-driven safety, rolling flow estimates, cooldown and lifecycle authorization against historical sequences.
+7. **Paper validation:** run matched-seed simulations and historical replay; report net PnL, tail loss, depth service, action count, failed transactions and inventory paths.
+
+No live execution should be enabled merely because the orchestrator can produce an action. Accounting, protocol adapters, replay, simulation, risk controls and paper validation must pass independently.
 
