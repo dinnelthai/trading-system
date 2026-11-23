@@ -4,6 +4,12 @@ A stochastic agent-based research simulator for studying a token launch from bon
 
 > Research and stress-testing only. The project does not connect to wallets or submit transactions. It does not implement wash trading, fabricated volume, deceptive coordination, artificial dumps, or a live sandwich bot. Adverse MEV behavior is represented as an abstract execution-risk estimate.
 
+## Target product direction
+
+The long-term product direction is a complete **Market Making & Market Quality System**, not a standalone LP Manager. LP management is one subsystem alongside market intelligence, flow intelligence, market-quality measurement, inventory, liquidity, execution, risk, and simulation/optimization. The target architecture, objectives, constraints, and research roadmap are documented in [Market Making & Market Quality System](docs/MARKET_MAKING_MARKET_QUALITY.md).
+
+This is a target-system specification, not a claim that all engines are implemented. The current repository remains a research and stress-testing simulator; live execution is outside its current scope.
+
 ## Implemented participant population
 
 - **Dev / treasury:** explicit unlocked and locked allocation, LP commitment at migration, and risk-based withdrawal of its own LP position.
@@ -75,6 +81,7 @@ Curve reserves, fees, external venue depth, agent counts, and behavioral paramet
 
 ## Research docs
 
+- [Market Making & Market Quality System — product direction and research specification](docs/MARKET_MAKING_MARKET_QUALITY.md)
 - [Tokenomics and supply accounting (R01)](docs/TOKENOMICS.md)
 - [Bonding curve mathematics and execution (R02)](docs/BONDING_CURVE.md)
 - [Pool microstructure and candle diagnostics (R03)](docs/POOL_MICROSTRUCTURE.md)
