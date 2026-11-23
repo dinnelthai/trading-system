@@ -8,6 +8,8 @@ import math
 import random
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 
+from .tokenomics import derive_initial_supply_allocation, dev_exposure_metrics, holder_concentration_metrics
+
 
 EPS = 1e-12
 
@@ -484,9 +486,16 @@ class Agent:
 class Market:
     def __init__(self, config: SimConfig):
         self.config = config
-        migration_tokens = config.curve_migration_token_reserve
-        if migration_tokens is None:
-            migration_tokens = config.total_supply - config.dev_allocation - config.other_locked_supply - config.curve_real_token_reserve - config.external_initial_token_reserve
+        self.initial_supply_allocation = derive_initial_supply_allocation(
+            total_supply=config.total_supply,
+            dev_allocation=config.dev_allocation,
+            dev_locked_fraction=config.dev_locked_fraction,
+            other_locked_supply=config.other_locked_supply,
+            curve_real_token_reserve=config.curve_real_token_reserve,
+            external_initial_token_reserve=config.external_initial_token_reserve,
+            curve_migration_token_reserve=config.curve_migration_token_reserve,
+        )
+        migration_tokens = self.initial_supply_allocation.migration_tokens
         self.curve_migration_token_reserve = migration_tokens
         self.curve = BondingCurve(
             config.curve_virtual_token_reserve,
@@ -504,8 +513,7 @@ class Market:
         self.graduated_at: Optional[float] = None
         self.external_token_reserve = config.external_initial_token_reserve
         self.external_quote_reserve = config.external_initial_quote_reserve
-        dev_unlocked = config.dev_allocation * (1.0 - config.dev_locked_fraction)
-        self.locked_supply = max(0.0, config.total_supply - dev_unlocked - self.curve.token_account_balance - self.external_token_reserve)
+        self.locked_supply = self.initial_supply_allocation.total_locked_tokens
 
     @property
     def price(self) -> float:
@@ -699,21 +707,26 @@ class SimulationEngine:
         self.sentiment = max(-1.0, min(1.0, self.sentiment * math.exp(-dt / 300.0) + self.rng.gauss(0, 0.012)))
 
     def _holder_concentration(self) -> Dict[str, float]:
-        circulating = max(self.config.total_supply - self.market.locked_supply, 1.0)
-        exposures = []
+        wallet_balances: Dict[str, float] = {}
+        locked_balances: Dict[str, float] = {}
+        lp_claims: Dict[str, float] = {}
         for agent in self.agents:
             if agent.kind == "mev_risk":
                 continue
-            lp_token_claim = 0.0
+            wallet_balances[agent.agent_id] = max(0.0, agent.account.tokens)
+            if agent.kind == "dev" and self.dev_locked_balance > EPS:
+                locked_balances[agent.agent_id] = self.dev_locked_balance
             if self.market.pool and self.market.pool.total_lp_shares > EPS:
-                lp_token_claim = self.market.pool.token_reserve * agent.account.lp_shares / self.market.pool.total_lp_shares
-            exposures.append(agent.account.tokens + lp_token_claim)
-        ordered = sorted(exposures, reverse=True)
-        return {
-            "top_holder_share_including_dev": (ordered[0] if ordered else 0.0) / circulating,
-            "top_5_holders_share": sum(ordered[:5]) / circulating,
-            "wallet_holder_hhi": sum((amount / circulating) ** 2 for amount in exposures),
-        }
+                lp_claims[agent.agent_id] = (
+                    self.market.pool.token_reserve * agent.account.lp_shares
+                    / self.market.pool.total_lp_shares
+                )
+        return holder_concentration_metrics(
+            wallet_balances=wallet_balances,
+            locked_balances=locked_balances,
+            lp_token_claims=lp_claims,
+            total_supply=self.config.total_supply,
+        )
 
     def _snapshot(self, timestamp: float) -> Snapshot:
         price = self.market.price
@@ -729,7 +742,9 @@ class SimulationEngine:
         dev_tokens = token_exposure(self.dev) if self.dev else 0.0
         holder_tokens = [token_exposure(a) for a in self.agents if a.kind not in ("dev", "mev_risk")]
         top_holder = max(holder_tokens, default=0.0) / circulating
-        dev_float = dev_tokens / circulating
+        # Dev float is immediately transferable wallet inventory. LP claims are
+        # reported separately as beneficial exposure, not treated as wallet float.
+        dev_float = (self.dev.account.tokens if self.dev else 0.0) / circulating
         progress = min(1.0, 1.0 - self.market.curve.real_tokens / max(self.config.curve_real_token_reserve, EPS)) if self.market.phase == Phase.CURVE else 1.0
         while self.recent_trade_window and self.recent_trade_window[0][0] < timestamp - 60.0:
             _, expired_volume = self.recent_trade_window.popleft()
@@ -1035,6 +1050,17 @@ class SimulationEngine:
                     "max": max(samples, default=0.0),
                 }
         concentration = self._holder_concentration()
+        dev_lp_claim = 0.0
+        if self.dev and self.market.pool and self.market.pool.total_lp_shares > EPS:
+            dev_lp_claim = self.market.pool.token_reserve * self.dev.account.lp_shares / self.market.pool.total_lp_shares
+        dev_metrics = dev_exposure_metrics(
+            dev_unlocked_tokens=self.dev.account.tokens if self.dev else 0.0,
+            dev_locked_tokens=self.dev_locked_balance,
+            dev_lp_token_claim=dev_lp_claim,
+            total_supply=self.config.total_supply,
+            circulating_supply=max(0.0, self.config.total_supply - self.market.locked_supply),
+            wallet_free_float_tokens=concentration["wallet_free_float_tokens"],
+        )
         observed_bars = self.observed_candles.bars()
         true_bars = self.true_candles.bars()
         observed_volume = sum(c.volume_quote for c in observed_bars)
@@ -1125,7 +1151,7 @@ class SimulationEngine:
             "top_holder_share": self._snapshot(self.config.duration_s).top_holder_share,
             **concentration,
             "dev_unlocked_tokens": self.dev.account.tokens if self.dev else 0.0,
-            "dev_total_token_exposure": (self.dev.account.tokens + (self.market.pool.token_reserve * self.dev.account.lp_shares / max(self.market.pool.total_lp_shares, EPS) if self.dev and self.market.pool else 0.0)) if self.dev else 0.0,
+            "dev_total_token_exposure": dev_metrics["dev_beneficial_token_exposure"],
             "dev_locked_tokens": self.dev_locked_balance,
             "dev_vested_tokens": self.dev_initial_locked_balance - self.dev_locked_balance,
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
@@ -1136,6 +1162,8 @@ class SimulationEngine:
             "initial_lp_locked_shares": self.market.initial_lp_locked_shares,
             "lp_fees_quote": self.market.pool.lp_fees_collected if self.market.pool else 0.0,
             "pool_protocol_fees_quote": self.market.pool.protocol_fees_collected if self.market.pool else 0.0,
+            "initial_supply_allocation": self.market.initial_supply_allocation.as_dict(),
+            **dev_metrics,
             "participants": dict(outcomes),
             "agent_profiles": agent_profiles,
         }
@@ -1175,8 +1203,11 @@ def run_monte_carlo(config: SimConfig, runs: int = 100) -> Dict[str, object]:
                 "pool_sell_volume_quote", "pool_net_quote_flow", "true_volume_quote",
                 "fees_quote", "external_fees_quote", "total_fees_including_external_quote",
                 "lp_fees_quote", "estimated_mev_risk_cost_quote",
-                "dev_float_share", "top_holder_share", "top_holder_share_including_dev", "top_5_holders_share",
-                "wallet_holder_hhi", "observed_to_true_volume_ratio",
+                "dev_float_share", "dev_direct_ownership_share", "dev_beneficial_exposure_share",
+                "dev_unlocked_supply_share", "dev_locked_supply_share", "top_holder_share",
+                "top_holder_share_including_dev", "top_5_holders_share", "wallet_holder_hhi",
+                "beneficial_holder_hhi", "holder_supply_coverage", "wallet_float_supply_share",
+                "observed_to_true_volume_ratio",
                 "candle_close_mae_bps", "migration_price_gap_bps", "token_supply_accounting_error",
                 "token_supply_accounting_error_fraction"):
         xs = values(key)
