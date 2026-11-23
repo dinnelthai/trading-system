@@ -35,6 +35,8 @@ class SimConfig:
     graduation_quote_reserve: float = 50.0
     curve_fee_bps: float = 100.0
     pool_fee_bps: float = 30.0
+    pool_lp_fee_share: float = 0.70
+    initial_lp_lock_fraction: float = 1.0
     dev_lp_quote_budget: float = 10.0
     external_fee_bps: float = 8.0
     external_depth_quote: float = 50.0
@@ -66,6 +68,8 @@ class SimConfig:
             raise ValueError("initial token allocations exceed total_supply")
         if not 0 <= self.dev_locked_fraction <= 1:
             raise ValueError("dev_locked_fraction must be in [0, 1]")
+        if not 0 <= self.pool_lp_fee_share <= 1 or not 0 <= self.initial_lp_lock_fraction <= 1:
+            raise ValueError("LP fee share and initial LP lock fraction must be in [0, 1]")
         if not 0 <= self.feed_drop_probability < 1:
             raise ValueError("feed_drop_probability must be in [0, 1)")
         if not 0 <= self.feed_duplicate_probability < 1:
@@ -265,11 +269,14 @@ class BondingCurve:
 
 
 class ConstantProductPool:
-    def __init__(self, token_reserve: float, quote_reserve: float, fee_bps: float):
+    def __init__(self, token_reserve: float, quote_reserve: float, fee_bps: float, lp_fee_share: float = 0.70):
         self.token_reserve = max(0.0, token_reserve)
         self.quote_reserve = max(0.0, quote_reserve)
         self.fee_rate = fee_bps / 10_000.0
         self.fees_collected = 0.0
+        self.lp_fees_collected = 0.0
+        self.protocol_fees_collected = 0.0
+        self.lp_fee_share = max(0.0, min(1.0, lp_fee_share))
         self.total_lp_shares = math.sqrt(self.token_reserve * self.quote_reserve) if self.token_reserve and self.quote_reserve else 0.0
 
     @property
@@ -282,9 +289,12 @@ class ConstantProductPool:
         fee = quote_in * self.fee_rate
         net = quote_in - fee
         token_out = self.token_reserve * net / (self.quote_reserve + net)
+        protocol_fee = fee * (1.0 - self.lp_fee_share)
         self.token_reserve -= token_out
-        self.quote_reserve += net
+        self.quote_reserve += quote_in - protocol_fee
         self.fees_collected += fee
+        self.lp_fees_collected += fee - protocol_fee
+        self.protocol_fees_collected += protocol_fee
         return Execution(quote_in, token_out, fee)
 
     def sell(self, token_in: float) -> Execution:
@@ -293,9 +303,12 @@ class ConstantProductPool:
         gross = self.quote_reserve * token_in / (self.token_reserve + token_in)
         fee = gross * self.fee_rate
         net = gross - fee
+        protocol_fee = fee * (1.0 - self.lp_fee_share)
         self.token_reserve += token_in
-        self.quote_reserve -= gross
+        self.quote_reserve -= gross - protocol_fee
         self.fees_collected += fee
+        self.lp_fees_collected += fee - protocol_fee
+        self.protocol_fees_collected += protocol_fee
         return Execution(token_in, net, fee)
 
     def add_liquidity(self, token_amount: float, quote_amount: float) -> Tuple[float, float, float]:
@@ -424,6 +437,7 @@ class Market:
             config.curve_fee_bps,
         )
         self.pool: Optional[ConstantProductPool] = None
+        self.initial_lp_locked_shares = 0.0
         self.phase = Phase.CURVE
         self.graduated_at: Optional[float] = None
         dev_unlocked = config.dev_allocation * (1.0 - config.dev_locked_fraction)
@@ -456,7 +470,9 @@ class Market:
             self.curve.real_tokens,
             self.curve.real_quote,
             self.config.pool_fee_bps,
+            self.config.pool_lp_fee_share,
         )
+        self.initial_lp_locked_shares = self.pool.total_lp_shares * self.config.initial_lp_lock_fraction
         self.phase = Phase.POOL
         self.graduated_at = timestamp
         return True
@@ -817,6 +833,9 @@ class SimulationEngine:
             "dev_lp_shares": self.dev.account.lp_shares if self.dev else 0.0,
             "pool_token_reserve": self.market.pool.token_reserve if self.market.pool else 0.0,
             "pool_quote_reserve": self.market.pool.quote_reserve if self.market.pool else 0.0,
+            "initial_lp_locked_shares": self.market.initial_lp_locked_shares,
+            "lp_fees_quote": self.market.pool.lp_fees_collected if self.market.pool else 0.0,
+            "pool_protocol_fees_quote": self.market.pool.protocol_fees_collected if self.market.pool else 0.0,
             "participants": dict(outcomes),
         }
 
