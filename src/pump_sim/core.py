@@ -485,7 +485,7 @@ class Market:
     @property
     def depth_quote(self) -> float:
         if self.phase == Phase.CURVE:
-            return max(0.1, self.curve.virtual_quote_reserve * 0.10)
+            return max(0.1, self.curve.virtual_quote * 0.10)
         return max(0.1, self.pool.quote_reserve * 0.10)  # type: ignore[union-attr]
 
     def preview_buy(self, quote_in: float) -> float:
