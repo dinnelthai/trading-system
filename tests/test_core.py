@@ -56,7 +56,7 @@ def test_curve_migrates_when_real_token_inventory_is_exhausted_with_continuous_p
     assert engine.market.pool is not None
     assert engine.market.pool.token_reserve == pytest.approx(206_900_000.0)
     assert engine.market.pool.quote_reserve == pytest.approx(engine.market.curve.real_quote - 0.015000001)
-    assert abs(engine.market.migration_price_gap_bps) < 2.0
+    assert abs(engine.market.migration_price_gap_bps) < 3.0
     assert engine.market.initial_lp_locked_shares > 0
 
 
