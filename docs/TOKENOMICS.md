@@ -23,14 +23,14 @@ The current simulator's dev_allocation means **pre-minted genesis allocation**. 
 
 Let:
 
-- (S_T): total token supply;
-- (D_u): Dev unlocked genesis allocation;
-- (D_l): Dev locked genesis allocation;
-- (O_l): other explicitly locked supply;
-- (C_r): real tokens available to curve buyers;
-- (M): tokens reserved for migration to the post-graduation pool;
-- (E): initial external-venue token inventory;
-- (U_l): residual supply not assigned to a market or named wallet bucket, treated as locked/unallocated.
+- \\(S_T\\): total token supply;
+- \\(D_u\\): Dev unlocked genesis allocation;
+- \\(D_l\\): Dev locked genesis allocation;
+- \\(O_l\\): other explicitly locked supply;
+- \\(C_r\\): real tokens available to curve buyers;
+- \\(M\\): tokens reserved for migration to the post-graduation pool;
+- \\(E\\): initial external-venue token inventory;
+- \\(U_l\\): residual supply not assigned to a market or named wallet bucket, treated as locked/unallocated.
 
 The initial ledger must satisfy:
 
@@ -44,7 +44,7 @@ with:
 D_u=D(1-v),\qquad D_l=Dv
 \]
 
-where (D) is the Dev genesis allocation and (v\in[0,1]) is its locked fraction.
+where \\(D\\) is the Dev genesis allocation and (v\in[0,1]) is its locked fraction.
 
 When migration inventory is not explicitly configured:
 
@@ -52,7 +52,7 @@ When migration inventory is not explicitly configured:
 M=S_T-D-O_l-C_r-E
 \]
 
-When migration inventory is explicitly configured, any positive residual is recorded as (U_l); a negative residual is rejected. No supply is silently dropped.
+When migration inventory is explicitly configured, any positive residual is recorded as \\(U_l\\); a negative residual is rejected. No supply is silently dropped.
 
 At runtime the conservation equation is:
 
@@ -68,7 +68,7 @@ S_T=\sum_i W_i + (C_r+M)+E+L
 S_T=\sum_i W_i + P_T+E+L
 \]
 
-where (W_i) are wallet balances, (P_T) is the pool's token reserve, and (L) is locked/unallocated supply. The migration reserve moves from the curve token account into the pool; it is never counted twice.
+where \\(W_i\\) are wallet balances, \\(P_T\\) is the pool's token reserve, and \\(L\\) is locked/unallocated supply. The migration reserve moves from the curve token account into the pool; it is never counted twice.
 
 Important exclusions:
 
@@ -102,7 +102,7 @@ M=1,000M-200M-793.1M=6.9M
 
 That is 200M fewer migration tokens than the standard baseline. This is a different supply layout and must not be described as the standard Pump-style launch.
 
-If instead Dev buys 200M tokens from the curve, the 200M comes out of the 793.1M curve inventory and the 206.9M migration reserve remains unchanged. With the initial virtual reserves (x=1,073M) tokens and (y=30) SOL, and ignoring other trades:
+If instead Dev buys 200M tokens from the curve, the 200M comes out of the 793.1M curve inventory and the 206.9M migration reserve remains unchanged. With the initial virtual reserves \\(x=1,073M\\) tokens and \\(y=30\\) SOL, and ignoring other trades:
 
 \[
 Q_{net}=\frac{y\Delta x}{x-\Delta x}
@@ -116,7 +116,7 @@ At a 100 bps curve fee, gross quote paid is:
 Q_{gross}=\frac{Q_{net}}{1-0.01}\approx6.94228\ SOL
 \]
 
-The theoretical spot price changes from (y/x) to ((y+Q_{net})/(x-\Delta x)), an increase of approximately 51.1%. This is a one-trade reserve calculation, not a recommended trade or an empirical execution quote.
+The theoretical spot price changes from \\(y/x\\) to ((y+Q_{net})/(x-\Delta x)), an increase of approximately 51.1%. This is a one-trade reserve calculation, not a recommended trade or an empirical execution quote.
 
 ### Locking changes sellability, not ownership
 
@@ -156,9 +156,9 @@ D_{beneficial}=D_u+D_l+D_{LP,claim}
 
 Report at least:
 
-- Dev unlocked share of total supply: (D_u/S_T);
-- Dev locked share of total supply: (D_l/S_T);
-- Dev direct ownership share: ((D_u+D_l)/S_T);
+- Dev unlocked share of total supply: \\(D_u/S_T\\);
+- Dev locked share of total supply: \\(D_l/S_T\\);
+- Dev direct ownership share: \\((D_u+D_l)/S_T\\);
 - Dev beneficial exposure share: (D_{beneficial}/S_T);
 - Dev unlocked share of circulating supply;
 - Dev share of wallet free float;
@@ -168,7 +168,7 @@ Do not infer that LP claim is instantly sellable. LP withdrawal constraints, loc
 
 ## 7. Concentration metrics
 
-For transferable wallet balances (w_i):
+For transferable wallet balances \\(w_i\\):
 
 \[
 HHI_{wallet}=\sum_i\left(\frac{w_i}{\sum_j w_j}\right)^2
@@ -182,7 +182,7 @@ For beneficial owner exposure:
 b_i=w_i+l_i+p_i
 \]
 
-where (l_i) is owner-attributed locked supply and (p_i) is the owner's LP token claim. Then:
+where \\(l_i\\) is owner-attributed locked supply and \\(p_i\\) is the owner's LP token claim. Then:
 
 \[
 HHI_{beneficial}=\sum_i\left(\frac{b_i}{\sum_j b_j}\right)^2
