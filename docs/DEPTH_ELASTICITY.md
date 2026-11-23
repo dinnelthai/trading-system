@@ -276,6 +276,46 @@ where each weight is that flow class's share of successful genuine pool volume. 
 
 KOL attention and market-wide demand shocks primarily affect arrival rates and order intent. Hold them constant in the pure depth experiment; vary them separately in the full market-regime experiment.
 
+### 7.1 External LP supply response and attribution
+
+The pool's total depth can change because Dev adds capital, external LPs add capital, or external LPs withdraw. These are different causes and must be recorded separately.
+
+Let \(K_D\) be Dev LP claim value, \(E\) external LP capital, \(T=K_D+E\), and define the local external-LP response to a marginal Dev contribution as:
+
+\[
+\chi=\frac{dE}{dK_D}
+\]
+
+- \(\chi=0\): external LP capital is fixed.
+- \(\chi>0\): Dev capital crowds in additional external LP capital.
+- \(-1<\chi<0\): Dev capital partially crowds out external LP capital.
+- \(\chi=-1\): each unit of Dev capital is offset by one unit of external LP withdrawal, so total pool depth does not increase.
+
+If fee rate is locally constant and \(V(T)\) has elasticity \(\epsilon_V\), Dev's fee capture is:
+
+\[
+F_D(K_D)=\frac{K_D}{T}f_LV(T)
+\]
+
+Differentiating while allowing \(E\) to respond gives:
+
+\[
+\boxed{
+\frac{dF_D}{dK_D}
+=f_L\frac VT
+\left[
+(1-\alpha)+\alpha\epsilon_V
++\alpha\chi(\epsilon_V-1)
+\right]
+}
+\]
+
+This generalizes the fixed-external-capital formula, which is the special case \(\chi=0\).
+
+A positive depth elasticity does not guarantee Dev captures all incremental fees: external LP supply can dilute Dev's share. Conversely, external LP withdrawals can increase Dev's fee share while reducing total market depth. The allocator must therefore report both Dev's LP share and total executable depth. It must not treat a larger Dev fee share as a market-quality improvement.
+
+Estimate \(\chi\) from external LP additions/removals around Dev capital changes only after controlling for market regime, volatility, fees and volume. Until measured, run at least \(\chi=0\) and stress cases for external LP crowd-in/crowd-out; do not assume Dev contributions create a one-for-one increase in total depth.
+
 ## 8. Numerical route-choice illustration
 
 This example isolates route choice and is not a calibrated estimate.
