@@ -256,6 +256,18 @@ Q_1=Q_0+N_p
 
 The simulator updates the migration token account and quote reserve before creating the pool. This makes the pool opening price continuous with the price after the synthetic pool leg.
 
+### Numerical example: a 100 SOL completing buy
+
+Using the default reserve snapshot and the illustrative 100 bps protocol-only fallback:
+
+- Curve leg: approximately 85.85541 SOL gross spend buys the final 793.1M curve tokens.
+- Remaining gross budget: approximately 14.14459 SOL.
+- Synthetic pool leg: approximately 14.00454 SOL enters the pool-to-be after fees and buys approximately 29.26959M more tokens.
+- Pool opens with approximately 177.63041M tokens and 98.99490 SOL quote reserve.
+- Opening spot price is approximately 5.5731e-7 SOL/token, or about 557.31 SOL FDV.
+
+With synthetic migration disabled, the curve-only buy would stop after the first leg and leave approximately 14.14459 SOL of the 100 SOL budget unspent. This is why the final V3 buy must be modeled as two linked legs rather than a simple curve cap.
+
 Only the completing V3 buy receives this treatment. The legacy/partial-fill behavior remains available by setting curve_synthetic_migration to false.
 
 ## 8. Why FDV can be much larger than real SOL backing
