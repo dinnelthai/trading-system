@@ -547,6 +547,7 @@ def test_simulation_summary_includes_canonical_market_integrity_projection():
     assert market["verified_independent_volume_quote"] == pytest.approx(10.0)
     assert market["related_or_controlled_volume_quote"] == pytest.approx(10.0)
     assert market["unique_wallets"] == 2
+    assert {row["wallet_id"] for row in market["wallet_activity"]} == {"dev-000", "retail-000"}
 
 
 def test_informed_trader_population_is_configurable_and_seeded():
