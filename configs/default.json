@@ -24,6 +24,8 @@
   "external_fee_bps": 8,
   "external_depth_quote": 50,
   "external_initial_token_reserve": 100000000,
+  "initial_capital_scale": 1.0,
+  "initial_capital_dispersion": 0.55,
   "n_snipers": 12,
   "n_kols": 3,
   "n_arbitrageurs": 4,
