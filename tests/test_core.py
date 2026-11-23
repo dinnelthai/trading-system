@@ -66,6 +66,14 @@ def test_different_seeds_create_different_paths():
     assert (a["trades"], a["final_price"]) != (b["trades"], b["final_price"])
 
 
+def test_agent_activation_events_are_asynchronous_and_individually_scheduled():
+    engine = SimulationEngine(SimConfig(seed=515, duration_s=30, n_retail=20))
+    activation_times = [event[0] for event in engine.activation_queue]
+    assert len(activation_times) == 1 + 12 + 3 + 4 + 20 + 5 + 8
+    assert len(set(activation_times)) == len(activation_times)
+    assert min(activation_times) > 0
+
+
 def test_traits_are_heterogeneous():
     rng = random.Random(7)
     traits = [Traits.sample(rng, "retail") for _ in range(30)]
@@ -156,6 +164,9 @@ def test_monte_carlo_reports_distribution_not_only_one_path():
     assert result["runs"] == 3
     assert 0 <= result["graduation_rate"] <= 1
     assert "p10" in result["metrics"]["max_drawdown"]
+    assert "graduation_time_s" in result["metrics"]
+    assert "retail" in result["participant_metrics"]
+    assert result["seed_end"] == 12
 
 
 def test_parameter_sweep_runs_independent_scenarios():
