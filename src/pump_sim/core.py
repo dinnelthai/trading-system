@@ -155,6 +155,7 @@ class Account:
     realized_pnl: float = 0.0
     fees_paid: float = 0.0
     lp_shares: float = 0.0
+    lp_cost_basis_quote: float = 0.0
     last_entry_time: float = 0.0
 
 
@@ -580,6 +581,7 @@ class SimulationEngine:
         c = self.config
         dev_unlocked = c.dev_allocation * (1.0 - c.dev_locked_fraction)
         self.dev = self._new_agent("dev", 0, c.dev_lp_quote_budget + 2.0, dev_unlocked)
+        self.dev.account.avg_entry_price = self.market.price
         self.agents.append(self.dev)
         populations = [
             ("sniper", c.n_snipers, (1.0, 4.0)),
@@ -719,6 +721,7 @@ class SimulationEngine:
         budget = min(self.config.dev_lp_quote_budget, self.dev.account.quote)
         if budget > EPS and self.dev.account.tokens > EPS:
             token_used, quote_used, shares = self.market.pool.add_liquidity(self.dev.account.tokens, budget)  # type: ignore[union-attr]
+            self.dev.account.lp_cost_basis_quote += token_used * self.dev.account.avg_entry_price + quote_used
             self.dev.account.tokens -= token_used
             self.dev.account.quote -= quote_used
             self.dev.account.lp_shares += shares
@@ -733,6 +736,7 @@ class SimulationEngine:
         if action.kind == "add_lp" and self.market.phase == Phase.POOL:
             token_used, quote_used, shares = self.market.pool.add_liquidity(agent.account.tokens, agent.account.quote)  # type: ignore[union-attr]
             if shares > EPS:
+                agent.account.lp_cost_basis_quote += token_used * agent.account.avg_entry_price + quote_used
                 agent.account.tokens -= token_used
                 agent.account.quote -= quote_used
                 agent.account.lp_shares += shares
@@ -740,6 +744,9 @@ class SimulationEngine:
 
         if action.kind == "remove_lp" and self.market.phase == Phase.POOL and agent.account.lp_shares > EPS:
             tokens, quote = self.market.pool.remove_liquidity(agent.account.lp_shares)  # type: ignore[union-attr]
+            lp_value = quote + tokens * self.market.price
+            agent.account.realized_pnl += lp_value - agent.account.lp_cost_basis_quote
+            agent.account.lp_cost_basis_quote = 0.0
             agent.account.tokens += tokens
             agent.account.quote += quote
             agent.account.lp_shares = 0.0
@@ -873,18 +880,23 @@ class SimulationEngine:
 
     def summary(self) -> Dict[str, object]:
         price = self.market.price
-        outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "lp_token_claim": 0.0, "quote": 0.0})
+        outcomes: Dict[str, Dict[str, float]] = defaultdict(lambda: {"agents": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0, "lp_unrealized_pnl": 0.0, "fees_paid": 0.0, "tokens": 0.0, "lp_token_claim": 0.0, "lp_quote_claim": 0.0, "quote": 0.0})
         for a in self.agents:
             row = outcomes[a.kind]
             lp_claim = 0.0
+            lp_quote_claim = 0.0
             if self.market.pool and self.market.pool.total_lp_shares > EPS:
                 lp_claim = self.market.pool.token_reserve * a.account.lp_shares / self.market.pool.total_lp_shares
+                lp_quote_claim = self.market.pool.quote_reserve * a.account.lp_shares / self.market.pool.total_lp_shares
+            lp_unrealized = lp_claim * price + lp_quote_claim - a.account.lp_cost_basis_quote
             row["agents"] += 1
             row["realized_pnl"] += a.account.realized_pnl
-            row["unrealized_pnl"] += a.account.tokens * (price - a.account.avg_entry_price)
+            row["unrealized_pnl"] += a.account.tokens * (price - a.account.avg_entry_price) + lp_unrealized
+            row["lp_unrealized_pnl"] += lp_unrealized
             row["fees_paid"] += a.account.fees_paid
             row["tokens"] += a.account.tokens
             row["lp_token_claim"] += lp_claim
+            row["lp_quote_claim"] += lp_quote_claim
             row["quote"] += a.account.quote
         trait_fields = ("activity_rate", "risk_aversion", "momentum_sensitivity", "social_sensitivity", "signal_noise", "horizon_s", "order_fraction", "migration_exit_probability")
         agent_profiles: Dict[str, Dict[str, Dict[str, float]]] = {}
