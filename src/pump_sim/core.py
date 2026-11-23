@@ -633,7 +633,7 @@ class SimulationEngine:
         return Snapshot(
             timestamp, self.market.phase, pool_age, self.project_quality, price, self.reference_price, momentum, volatility,
             self.attention, self.sentiment, self.config.dev_allocation / self.config.total_supply,
-            dev_float, self.config.dev_locked_fraction, top_holder, progress,
+            dev_float, self.dev_locked_balance / max(self.config.dev_allocation, EPS), top_holder, progress,
             self.market.depth_quote, recent_volume,
         )
 
