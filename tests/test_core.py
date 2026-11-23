@@ -66,6 +66,33 @@ def test_different_seeds_create_different_paths():
     assert (a["trades"], a["final_price"]) != (b["trades"], b["final_price"])
 
 
+def test_wallet_capital_is_heterogeneous_and_right_skewed():
+    config = SimConfig(
+        seed=901,
+        duration_s=10,
+        n_snipers=0,
+        n_kols=0,
+        n_arbitrageurs=0,
+        n_retail=200,
+        n_whales=0,
+        n_lp_providers=0,
+        n_mev_risk_agents=0,
+    )
+    engine = SimulationEngine(config)
+    balances = sorted(a.account.quote for a in engine.agents if a.kind == "retail")
+    median = balances[len(balances) // 2]
+    p90 = balances[int(len(balances) * 0.90)]
+    assert len(set(round(value, 6) for value in balances)) > 190
+    assert p90 > median * 1.4
+
+
+def test_executions_are_processed_in_chronological_event_order():
+    engine = SimulationEngine(SimConfig(seed=313, duration_s=240))
+    engine.run()
+    timestamps = [trade.timestamp for trade in engine.trades]
+    assert timestamps == sorted(timestamps)
+
+
 def test_agent_activation_events_are_asynchronous_and_individually_scheduled():
     engine = SimulationEngine(SimConfig(seed=515, duration_s=30, n_retail=20))
     activation_times = [event[0] for event in engine.activation_queue]
